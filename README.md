@@ -1,4 +1,4 @@
-# Smart Pen Stylus with Integrated Force and Motion Sensing
+# Dodeca Pen with Integrated Force and Motion Sensing
 
 A smart stylus system that combines force sensing, inertial motion tracking, and computer vision for high-precision pen input. This project integrates a custom force-sensing PCB with a Seeed Studio Xiao nRF52840 Sense microcontroller, assembled into a 3D-printed pen body with computer vision tracking via ArUco markers.
 
