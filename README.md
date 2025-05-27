@@ -37,30 +37,47 @@ Connect the board to your computer using a USB-C cable.
 Click Tools > Board > Seeed nRF52 Boards > Seeed XIAO nRF52840 Sense.
 Upload the code.
 
-### Build Step
-1. Print all three STL files from print/export/ on your 3D printer.
-2. Solder the force sensor to the custom PCB. Make sure to align the top-left of the force sensor (marked with a very small circle) with the circle on the PCB.
-3. Solder the force sensor PCB, battery, and development board together using wires, following the schematic below. Make sure to cut wires the right length to fit the stylus body.
-4. Place the force sensor PCB, battery, and microcontroller into the bottom half of the 3D printed stylus. The stylus body also has a hole for a switch to disconnect the battery during development, but you can ignore this.
-5. Find a small, flat piece of metal or hard plastic, and glue it to the back of the 3D printed nib base where it contacts the force sensor.
-6. Insert the nib into the 3D printed nib base, then fit it into the front of the stylus using the spring. You may need to hold it in place until the stylus is fully assembled.
-7. Push the half-assembled pen through the 3D printed bigger ring (for the dodeca ball), until the ring is at the rear side of the stylus. 
-8. Add the top half of the stylus, and secure it in place using the 3D printed smaller ring.
-9. Glue small magnet onto the magnet holder hole on both the dodeca ball lid and one of the dodeca ball half.
-10. Carefully insert the IMU into the first half of the dodeca ball
-10. Align the second haLf of the dodeca ball, and secure them onto the stylus body using the bigger ring.
-11. Place the lid onto the dodeca ball until two magnets fit together.
-12. Print out the ArUco markers from xxxxx.pdf at 100% scale. This has two copies of each marker (and some spares), but you only need one. #TODO: update the pdf file name.
-13. Cut carefully along each of the lines around the markers. The white borders are important, so don't cut them off.
-14. Glue the markers to the stylus using a glue stick (or your glue of choice). Place them according to the diagram.
-15. Finally, you'll also need a ChArUco board for camera calibration, which you can print using the pattern from markers/. You can either attach this to a flat board, or leave it on your desk.
+## 🛠️Build Step
+1. Print all STL files in the ./STL folder using your 3D printer.
+
+2. Solder the force sensor to the custom PCB. Align the top-left corner of the sensor (marked with a tiny circle) to the matching circle on the PCB.
+
+3. Solder the PCB, battery, and development board together using wires, following the schematic below.
+✂️ Make sure to cut each wire to the appropriate length so the components fit snugly inside the stylus body.
+
+4. Insert the assembled electronics (force sensor PCB, battery, and microcontroller) into the bottom half of the 3D-printed stylus body.
+🕳️ Note: The body includes a hole for a switch to disconnect the battery during development. You can ignore this if not needed.
+
+5. Find a small flat piece of metal or hard plastic, and glue it to the back of the 3D-printed nib base—specifically the part that makes contact with the force sensor.
+
+6. Insert the nib into the 3D-printed nib base. Then fit the nib and compression spring into the front end of the stylus.
+🧷 You may need to hold this assembly in place until the stylus is fully closed.
+
+7. Slide the assembled stylus through the larger ring (07_d_ring.stl) until the ring rests at the rear of the stylus.
+
+8. Attach the top half of the stylus, and secure it using the smaller ring (05_ring.stl).
+
+9. Glue a small magnet into the magnet holder holes on both the dodeca ball lid and one half of the dodeca ball.
+
+10. Insert the IMU into the first half of the dodeca ball.
+
+11. Align the second half of the dodeca ball and secure both halves onto the stylus body using the larger ring.
+
+12. Place the lid onto the dodeca ball so the two magnets snap together securely.
+
+13. Print the ArUco markers from ./aruco_images/print.jpg at the correct scale. Carefully glue them onto each face of the dodeca ball, aligning them with the square cutouts.
+
+14. Glue the markers to the stylus using a glue stick (or another adhesive).
+🧭 Place the markers in the same order as labeled in the dodeca_stylus_half.stl file.
+
+15. Finally, you'll also need a ChArUco board for camera calibration, which you can print using the pattern from markers/. You can either attach this to a flat board, or leave it on your desk. #TODO
 ---
 
-### Software Step
+## Software Step
 Placeholder
 
-### Run Application
+## Run Application
 Placeholder
 
-### Camera Calibration
-Placeholder
+## Camera Calibration
+Placeholder 
