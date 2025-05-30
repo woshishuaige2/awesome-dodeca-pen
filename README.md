@@ -74,7 +74,10 @@ Upload the code.
 ---
 
 ## Software Step
-Placeholder
+Inside Code folder:
+    - ./Computer_vision has code similar to dodeca ball code, it uses computer vision to predict the center point of the dodecahedron.
+    - ./IMU has code similar to DPOINT, with integrated code to capture Dodeca markers. You can think of this code as Dodeca+DPOINT, but the IMU prediction and Computer vision run on seperate threads
+    - ./Kalman has code to process raw IMU sensor data after applying kalman filter on it. It is working now.
 
 ## Run Application
 Placeholder
