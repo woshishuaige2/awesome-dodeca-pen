@@ -5,8 +5,8 @@ A smart stylus system that combines force sensing, inertial motion tracking, and
 ---
 ## Clone Repository
 Before continuing, clone the repository:
-bash git clone https://github.com/woshishuaige2/awesome-dodeca-
-pen.git cd awesome-dodeca-pen
+bash git clone https://github.com/woshishuaige2/awesome-dodeca-pen.git 
+cd awesome-dodeca-pen
 
 ## 🔧 Tools and Equipment
 
@@ -44,6 +44,7 @@ Upload the code.
 
 3. Solder the PCB, battery, and development board together using wires, following the schematic below.
 ✂️ Make sure to cut each wire to the appropriate length so the components fit snugly inside the stylus body.
+Wiring diagram: ![Wiring diagram](images/wiring_diagram.png)
 
 4. Insert the assembled electronics (force sensor PCB, battery, and microcontroller) into the bottom half of the 3D-printed stylus body.
 🕳️ Note: The body includes a hole for a switch to disconnect the battery during development. You can ignore this if not needed.
@@ -78,6 +79,8 @@ Inside Code folder:
     - ./Computer_vision has code similar to dodeca ball code, it uses computer vision to predict the center point of the dodecahedron.
     - ./IMU has code similar to DPOINT, with integrated code to capture Dodeca markers. You can think of this code as Dodeca+DPOINT, but the IMU prediction and Computer vision run on seperate threads
     - ./Kalman has code to process raw IMU sensor data after applying kalman filter on it. It is working now.
+
+Run "pip3 install -r requirements.txt" 
 
 ## Run Application
 Placeholder
