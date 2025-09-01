@@ -1,5 +1,5 @@
 import numpy as np
-from src.ArucoUtils import *
+from src.DoDecahedronUtils import *
 import cv2.aruco as aruco
 
 
@@ -70,7 +70,7 @@ def object_tracking(frame, params, text_data, post, show_markers=1):
 		center_pose_rod_raw = center_transform_rod.T
 		final_pose = center_pose_rod_raw
 
-		if post == 1 or post == 2:
+		if post == 1 or post == 2:  # 0 means raw pose, 1 means pose refined by APE, 2 means pose refined by DPR
 			center_pose_ape = leastsq(LM_APE_Dodecapen, center_transform_rod, Dfun=None, full_output=False,
 										col_deriv=False, ftol=1.49012e-6, xtol=1.49012e-4, gtol=0.0, maxfev=1000,
 										epsfcn=None, factor=1, diag=None, args=(stacked_corners_px_sp, ids, params, False))[0]

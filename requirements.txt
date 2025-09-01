@@ -2,3 +2,4 @@ opencv-contrib-python
 transforms3d
 numpy
 matplotlib
+PyQt6

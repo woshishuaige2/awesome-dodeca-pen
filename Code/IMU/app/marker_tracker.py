@@ -56,11 +56,12 @@ def get_webcam():
     webcam.set(cv2.CAP_PROP_AUTOFOCUS, 0)
     webcam.set(cv2.CAP_PROP_FOCUS, 30)
     webcam.set(cv2.CAP_PROP_AUTO_EXPOSURE, 1)
-    webcam.set(cv2.CAP_PROP_EXPOSURE, -9)
-    webcam.set(cv2.CAP_PROP_BRIGHTNESS, 127)
-    webcam.set(cv2.CAP_PROP_CONTRAST, 140)
-    webcam.set(cv2.CAP_PROP_GAIN, 200)
-    webcam.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    # webcam.set(cv2.CAP_PROP_EXPOSURE, -9)
+    # webcam.set(cv2.CAP_PROP_BRIGHTNESS, 127)
+    # webcam.set(cv2.CAP_PROP_CONTRAST, 140)
+    # webcam.set(cv2.CAP_PROP_GAIN, 200)
+    # webcam.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    webcam.set(cv2.CAP_PROP_SETTINGS, 1)
     return webcam
 
 
@@ -379,7 +380,7 @@ def run_tracker(
     cv2.namedWindow("Tracker", cv2.WINDOW_KEEPRATIO)
     cv2.resizeWindow("Tracker", 1050, int(1050 * 1080 / 1920))
     camera_matrix, dist_coeffs = read_camera_parameters(
-        "camera_params_c922_f30.yml"
+        "./params/camera_params_c922_f30.yml"
     )
     marker_positions = load_marker_positions()
     print("Opening webcam..")
