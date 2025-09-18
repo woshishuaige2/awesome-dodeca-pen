@@ -38,6 +38,9 @@ def main():
 	# the tip_loc_cent is the result of tip calibration,
 	# use tip_calibration.py to calibrate the tip coorindate in the Docecahedron's frame
 	tip_loc_cent = np.array([-1.4259097, 138.2282741, -83.86195491, 1]).reshape(4,1)
+	#[ 8.40682847e-02  1.38090962e+02 -8.24473826e+01]
+	#[-4.63769333e-02  1.42520472e+02 -8.89559608e+01]
+
 
 	pose_marker_without_opt = np.zeros((10000,6))  # 6DOF using average pose obtained from Aruco
 	pose_marker_with_APE = np.zeros((10000,6))     # 6DOF using approximate pose estimation (nPn using corners)
