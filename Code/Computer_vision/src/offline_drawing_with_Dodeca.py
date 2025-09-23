@@ -20,6 +20,7 @@ import multiprocessing as mp
 
 from pynput import keyboard
 import threading
+from filter import OneEuroFilter
 
 def main():
 	plot_switch = 1
@@ -65,6 +66,11 @@ def main():
                          cv2.VideoWriter_fourcc(*'MJPG'),
                          30, size)
 	
+	# Initialize the filter variables with a placeholder
+	first_valid_pose = False
+	filter_x, filter_y, filter_z = None, None, None
+
+	idx = 0 # Tip position data index
 	j = 0
 	while (j<iterations_for_while):  #cap.isOpened():
 	# while(True):
@@ -83,24 +89,52 @@ def main():
 			pose_marker_with_DPR[j,:] = pose_DPR
 			tf_cam_to_cent = dodecapen.RodriguesToTransf(pose_DPR)
 			tip_loc_cam = tf_cam_to_cent.dot(tip_loc_cent)
-			# print 	tip_loc_cam[0:3].shape	
-			tip_position[j,:] = tip_loc_cam[0:3].reshape(3,) 
-			tip_pix,_ = cv2.projectPoints(tip_loc_cam[0:3].reshape(1,3),np.zeros((3,1)),np.zeros((3,1)),
-											  params.mtx, params.dist)
-			
+   
+			# Initialize the filter with the first valid pose
+			if not first_valid_pose:
+				t_start = time.time()
+				filter_x = OneEuroFilter(t_start, tip_loc_cam[0, 0])
+				filter_y = OneEuroFilter(t_start, tip_loc_cam[1, 0])
+				filter_z = OneEuroFilter(t_start, tip_loc_cam[2, 0])
+				first_valid_pose = True
+    
+			# Apply the filter to each coordinate
+			current_time = time.time()
+			filtered_x = filter_x.filter_signal(current_time, tip_loc_cam[0, 0])
+			filtered_y = filter_y.filter_signal(current_time, tip_loc_cam[1, 0])
+			filtered_z = filter_z.filter_signal(current_time, tip_loc_cam[2, 0])
+   
+			# Create a new, filtered tip vector
+			filtered_tip_tvec = np.array([[filtered_x, filtered_y, filtered_z]])
+
+			# Store the filtered data
+			tip_position[idx,:] = filtered_tip_tvec.reshape(3,)
+   
+			# Convert the filtered 3D point to 2D pixel coordinates for drawing
+			tip_pix, _ = cv2.projectPoints(filtered_tip_tvec, np.zeros((3,1)), np.zeros((3,1)),
+											params.mtx, params.dist)
+
 			center = tuple(np.ndarray.astype(tip_pix[0,0],int))
-			# print(center,"center")
-			frame = cv2.circle( frame , center, 5 , 127, -1)
-			# frame = cv2.circle( frame, center, 5 , 127, -1)
+
+			# Draw the filtered pen tip on the frame
+			frame = cv2.circle(frame, center, 5, (0, 255, 0), -1)
+
+			# Draw the unfiltered point for comparison
+			unfiltered_tip_pix, _ = cv2.projectPoints(tip_loc_cam[0:3].reshape(1,3), np.zeros((3,1)), np.zeros((3,1)),
+													params.mtx, params.dist)
+			unfiltered_center = tuple(np.ndarray.astype(unfiltered_tip_pix[0,0],int))
+			frame = cv2.circle(frame, unfiltered_center, 5, (0, 0, 255), -1)
+
 			print("frame number ", j)
 			cv2.imshow('AR Pen tracking', frame)
 			result.write(frame)
-			# if cv2.waitKey(0) & 0xFF == ord('r') :
-			# 	print ("recording")
-			j +=1
-			if cv2.waitKey(1) & 0xFF == ord('q') or j >= iterations_for_while:
-				print("STOP")
-				break
+
+			idx += 1
+
+		j +=1
+		if cv2.waitKey(1) & 0xFF == ord('q') or j >= iterations_for_while:
+			print("STOP")
+			break
 
 	pose_marker_without_opt = pose_marker_without_opt[0:j,:]
 	pose_marker_with_APE = pose_marker_with_APE[0:j,:]

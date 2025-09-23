@@ -75,6 +75,78 @@ Wiring diagram: ![Wiring diagram](images/wiring_diagram.png)
 ---
 
 ## Software Step
+👁️ Run the Computer Vision Module
+
+This module detects ArUco/ChArUco markers on the dodeca ball and estimates the center point (and pose, if enabled) in real time.
+
+0) Prerequisites
+
+Python: 3.9–3.11 recommended
+
+OpenCV (with contrib): required for ArUco
+
+A camera: laptop webcam or USB camera
+
+# From repo root
+python -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+# If needed (ArUco lives in contrib):
+pip install opencv-contrib-python
+
+Tip: If you already ran pip install -r requirements.txt, but detection fails with “module cv2.aruco not found”, install opencv-contrib-python explicitly as above. If you are missing any other libraries, please install manually.
+
+1) (Recommended)🎯 Camera Calibration (Aruco/ChArUco)
+
+  The camera must be calibrated before running tracking. This step creates:
+
+  color_cam_matrix.npy – intrinsic matrix
+
+  color_cam_dist.npy – distortion coefficients
+
+  Both files are saved in the same folder as the script.
+
+
+  1. Install dependencies
+  Make sure you have the contrib build of OpenCV (for ArUco/ChArUco):
+
+  pip install opencv-contrib-python
+
+
+  2. Capture calibration images
+  Print the provided ChArUco board and record 20–30 images at different angles, distances, and positions. Save them into a folder.
+
+  3. Run calibration
+  From the repo root:
+
+  macOS/Linux:
+
+  cd awesome_dodeca_pen/code/computer_vision/camera_calibration/Aruco_Calibration
+  python calibrationAruco.py
+
+
+  Windows (PowerShell):
+
+  cd awesome_dodeca_pen\code\computer_vision\camera_calibration\Aruco_Calibration
+  python .\calibrationAruco.py
+
+
+  Make sure the script has Calibrate_camera = True when running calibration.
+
+  4. Check results
+  After successful calibration, you should see:
+
+  color_cam_matrix.npy
+  color_cam_dist.npy
+
+  in the same folder. You can replace these two new files with the existing color_cam_matrix.npy and color_cam_dist.npy in ./Computer_vision/camera_matrix
+
+2) Run the Dodeca Tracker (Live)
+In ./Code/Computer_vision, run run.py by clicking the play button.
+3) Running on Recorded Video (Optional)
+In ./Code/Computer_vision/src, run offline_drawing_with_Dodeca.py by clicking the play button.
+
+
 Inside Code folder:
     - ./Computer_vision has code similar to dodeca ball code, it uses computer vision to predict the center point of the dodecahedron.
     - ./IMU has code similar to DPOINT, with integrated code to capture Dodeca markers. You can think of this code as Dodeca+DPOINT, but the IMU prediction and Computer vision run on seperate threads

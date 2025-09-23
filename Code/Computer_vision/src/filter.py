@@ -16,12 +16,13 @@ class OneEuroFilter:
 	def smoothing_factor(self, t_e, cutoff):
 		r = 2 * math.pi * cutoff * t_e
 		return r / (r + 1)
-
+ 
 	def exponential_smoothing(self, a, x, x_prev):
 		return a * x + (1 - a) * x_prev
 
 	def filter_signal(self, t, x):
 		"""Compute the filtered signal."""
+		# Filtered Signal=α×Current Input+(1−α)×Previous Filtered Signal
 		t_e = t - self.t_prev
 
 		# The filtered derivative of the signal.
