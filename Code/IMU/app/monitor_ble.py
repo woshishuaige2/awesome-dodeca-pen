@@ -72,9 +72,6 @@ async def monitor_ble_async(data_queue: mp.Queue, command_queue: mp.Queue):
         def queue_notification_handler(_: BleakGATTCharacteristic, data: bytearray):
             reading = unpack_imu_data_packet(data)
 
-            print("Accel X, Y, Z: ", reading.accel)
-            print("Gyro X, Y, Z:  ", reading.gyro)
-
             data_queue.put(reading)
 
         disconnected_event = asyncio.Event()

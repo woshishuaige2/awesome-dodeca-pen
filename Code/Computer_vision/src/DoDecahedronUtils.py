@@ -13,15 +13,32 @@ from mpl_toolkits.mplot3d import Axes3D
 import transforms3d as tf3d
 import time
 from scipy.interpolate import griddata
-
 from scipy.optimize import minimize, leastsq, least_squares
 from scipy import linalg
 from scipy.spatial import distance
-from matplotlib.path import Path
+from matplotlib.path import Path as MplPath
+from pathlib import Path as SysPath
+from matplotlib.path import Path as MplPath
+from pathlib import Path as SysPath
 
+# ------------------------------------------------------------------
+# Automatically locate .npy assets relative to project structure
+# ------------------------------------------------------------------
+# Current file: Code/Computer_vision/src/DoDecahedronUtils.py
+# Assets live in: Code/Computer_vision/
+# So we go two levels up and join filenames.
 
-_R_cent_face = np.load('Center_face_rotations.npy')
-_T_cent_face = np.load('Center_face_translations.npy')
+BASE_DIR = SysPath(__file__).resolve().parents[1]   # → Code/Computer_vision
+R_PATH   = BASE_DIR / "Center_face_rotations.npy"
+T_PATH   = BASE_DIR / "Center_face_translations.npy"
+CAM_MTX  = BASE_DIR / "cam_mtx.npy"
+CAM_DIST = BASE_DIR / "cam_dist.npy"
+
+ASSETS_DIR = BASE_DIR / "dodecapen_assets"
+
+_R_cent_face = np.load(R_PATH)
+_T_cent_face = np.load(T_PATH)
+
 frame_gray = np.zeros((100,100, 3), np.uint8)
 frame_gray_draw = np.copy(frame_gray)
 
@@ -76,7 +93,7 @@ def patch_norm_and_grad(frame,frame_grad_u,frame_grad_v,corners_pix,bounding_box
 	x, y = x.flatten(), y.flatten()
 	points = np.vstack((x,y)).T 
 
-	p = Path(corners_pix) # make a polygon in pixel space
+	p = MplPath(corners_pix) 
 	grid = p.contains_points(points)  # make grid
 	mask = grid.reshape(len(a),len(b)) 
 	local_frame = frame[start_pnt[0]:start_pnt[0]+len(a), start_pnt[1]:start_pnt[1]+len(b)]
@@ -499,8 +516,9 @@ class parameters():
 		# with np.load('PTGREY.npz') as X: # Camera projection matrix and distortion coefficient, TODO: get from holoens
 		# 	cam_mtx, cam_dist = [X[i] for i in ('mtx','dist')] 
 
-		self.mtx = np.load("./src/cam_mtx.npy")	
-		self.dist =  np.load("./src/cam_dist.npy")	
+		self.mtx  = np.load(CAM_MTX)
+		self.dist = np.load(CAM_DIST)
+
 		self.dwnsmpl_by = 100           ## changed the number of points_for_DPR
 		self.markers_possible = np.array([1,2,3,4,5,6,7,8,10,11,12])
 		self.markers_impossible = np.array([0,9,13,17,37,16,34,45,38,24,47,32,40])
@@ -514,9 +532,14 @@ class txt_data():
 		self.img_pnts = [0]*13
 		#TODO: CHECK THIS PART
 		for i in range(1,13):
-			self.edge_pts_in_img_sp[i] = np.loadtxt("./dodecapen_assets/thick_edge_coord_R3/id_{}.txt".format(i),delimiter=',',dtype=np.float32)*12.5/17.78 #TODO: check how this was generated, this array stores all points lying on the black/white edges
-			self.aruco_images[i]= cv2.imread("./dodecapen_assets/aruco_images_mip_maps/res_75_{}.jpg".format(i),0)
-			self.img_pnts[i] = np.loadtxt("./dodecapen_assets/thick_edge_coord_pixels/id_{}.txt".format(i),delimiter=',',dtype='int16') #TODO: this array represents each points on the marker in respect to X,Y position
+			edge_path = ASSETS_DIR / "thick_edge_coord_R3" / f"id_{i}.txt"
+			img_path  = ASSETS_DIR / "aruco_images_mip_maps" / f"res_75_{i}.jpg"
+			pixel_path = ASSETS_DIR / "thick_edge_coord_pixels" / f"id_{i}.txt"
+
+			self.edge_pts_in_img_sp[i] = np.loadtxt(edge_path, delimiter=",", dtype=np.float32) * 12.5 / 17.78
+			self.aruco_images[i] = cv2.imread(str(img_path), 0)    # OpenCV needs string paths
+			self.img_pnts[i] = np.loadtxt(pixel_path, delimiter=",", dtype="int16")
+			self.aruco_images_int16[i] = np.int16(self.aruco_images[i])
 			self.aruco_images_int16[i] = np.int16(self.aruco_images[i])
 # 2. pen tip calibration, record a video, upload to pen tip calibration tip_calibration.py
 # 1. camera calibration, openCV method to calibrate camera, print out checker paper for calibration

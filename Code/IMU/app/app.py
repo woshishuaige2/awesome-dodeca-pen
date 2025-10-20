@@ -25,6 +25,29 @@ from app.filter import DpointFilter, blend_new_data
 from app.marker_tracker import CameraReading, run_tracker
 from app.monitor_ble import StopCommand, StylusReading, monitor_ble
 
+from app.dodeca_bridge import make_ekf_measurements, TIP_OFFSET_BODY, IMU_TO_TIP_BODY
+
+# ... existing imports ...
+import numpy as np
+import queue
+import multiprocessing as mp
+import threading  # <-- add this
+import sys, threading
+from pathlib import Path
+
+_CODE_DIR = Path(__file__).resolve().parents[2]
+_CV_DIR = _CODE_DIR / "Computer_vision"
+if str(_CV_DIR) not in sys.path:
+    sys.path.insert(0, str(_CV_DIR))
+
+import run as cv_run  # this is the CV loop you start in a thread
+
+# >>> add these two lines <<<
+from app import dodeca_bridge
+dodeca_bridge.dcv_run = cv_run
+
+
+
 CANVAS_SIZE = (1080, 1080)  # (width, height)
 TRAIL_POINTS = 12000
 USE_3D_LINE = (
@@ -91,7 +114,11 @@ class CanvasWrapper:
             azimuth=0,
             scale_factor=0.3,
         )
-        vertices, faces, normals, texcoords = read_mesh("./mesh/pen.obj") 
+
+        APP_DIR = Path(__file__).resolve().parent
+        MESH_PATH = (APP_DIR / "mesh" / "pen.obj").resolve()
+        vertices, faces, normals, texcoords = read_mesh(MESH_PATH.as_posix())
+
         self.pen_mesh = visuals.Mesh(
             vertices, faces, color=(0.8, 0.8, 0.8, 1), parent=self.view_top.scene
         )
@@ -260,6 +287,7 @@ class QueueConsumer(QtCore.QObject):
 
     def run_queue_consumer(self):
         print("Queue consumer is starting")
+        last_log = 0.0 
         samples_since_camera = 1000
         pressure_baseline = 0.017  # Approximate measured value for initial estimate
         pressure_avg_factor = 0.1  # Factor for exponential moving average
@@ -271,32 +299,54 @@ class QueueConsumer(QtCore.QObject):
             if self._should_end:
                 print("Data source saw that it was told to stop")
                 break
-
+            # ---- NEW: poll DodecaBall vision via bridge (no tracker_queue) ----
             try:
-                while self._tracker_queue.qsize() > 2:
-                    self._tracker_queue.get()
-                reading = self._tracker_queue.get_nowait()
+                vis = make_ekf_measurements(TIP_OFFSET_BODY, IMU_TO_TIP_BODY)
+                if vis is not None:
+                    now = time.time()
+                    if now - last_log > 0.5:
+                        print("Bridge OK -> imu_pos_cam:", vis["imu_pos_cam"])
+                        last_log = now
+            except Exception as e:
+                # If bridge has a hiccup, don't kill the loop
+                print("[QueueConsumer] bridge error:", e)
+                vis = None
+            if vis is not None:
+                # Optional recording of the *actual* vision data we fuse
                 if recording_enabled.value:
                     self._recorded_data_camera.append(
-                        (time.time_ns() // 1_000_000, reading)
+                        (
+                            time.time_ns() // 1_000_000,  # ms
+                            {
+                                "imu_pos_cam": np.asarray(vis["imu_pos_cam"]).tolist(),
+                                "R_cam": np.asarray(vis["R_cam"]).tolist(),
+                                "timestamp": float(vis.get("timestamp", 0.0)),
+                            },
+                        )
                     )
                 samples_since_camera = 0
                 smoothed_tip_pos = self._filter.update_camera(
-                    reading.position.flatten(), reading.orientation_mat
+                    np.asarray(vis["imu_pos_cam"]).flatten(),  # (3,)
+                    np.asarray(vis["R_cam"])                    # (3x3)
                 )
                 self.new_data.emit(CameraUpdateData(position_replace=smoothed_tip_pos))
-            except queue.Empty:
-                pass
 
+            # ---- IMU QUEUE (unchanged logic) ----
             while self._imu_queue.qsize() > 0:
-                reading = self._imu_queue.get()
+                try:
+                    reading = self._imu_queue.get_nowait()
+                except queue.Empty:
+                    break
+
                 samples_since_camera += 1
                 if samples_since_camera > 10:
                     continue
+
                 if recording_enabled.value:
                     self._recorded_data_stylus.append(
                         (time.time_ns() // 1_000_000, reading)
                     )
+
                 self._filter.update_imu(reading.accel, reading.gyro)
                 position, orientation = self._filter.get_tip_pose()
                 zpos = position[2]
@@ -306,16 +356,21 @@ class QueueConsumer(QtCore.QObject):
                         pressure_baseline * (1 - pressure_avg_factor)
                         + reading.pressure * pressure_avg_factor
                     )
+
                 self.new_data.emit(
                     StylusUpdateData(
                         position=position,
                         orientation=orientation,
                         pressure=(
-                            reading.pressure - pressure_baseline - pressure_offset
-                        )
-                        / pressure_range,
+                            (reading.pressure - pressure_baseline - pressure_offset)
+                            / pressure_range
+                        ),
                     )
                 )
+
+            # Avoid busy-spin when neither IMU nor vision produced data this tick
+            time.sleep(0.001)
+
 
         print("Queue consumer finishing")
 
@@ -369,12 +424,14 @@ def main():
     queue_consumer = QueueConsumer(tracker_queue, ble_queue)
     queue_consumer.moveToThread(data_thread)
 
-    camera_process = mp.Process(
-        target=run_tracker_with_queue,
-        args=(tracker_queue, recording_enabled, recording_timestamp),
-        daemon=False,
+    # (camera process remains commented out)
+    # camera_process = ...
+
+    # --- NEW: launch the CV loop in-process so the bridge can see object_pose ---
+    cv_thread = threading.Thread(
+        target=cv_run.main, kwargs={"headless": False, "cam_index": 0}, daemon=True
     )
-    camera_process.start()
+    cv_thread.start()
 
     ble_process = mp.Process(
         target=monitor_ble, args=(ble_queue, ble_command_queue), daemon=False
@@ -383,13 +440,10 @@ def main():
 
     # update the visualization when there is new data
     queue_consumer.new_data.connect(canvas_wrapper.update_data)
-    # start data generation when the thread is started
     data_thread.started.connect(queue_consumer.run_queue_consumer)
-    # if the data source finishes before the window is closed, kill the thread
     queue_consumer.finished.connect(
         data_thread.quit, QtCore.Qt.ConnectionType.DirectConnection
     )
-    # if the window is closed, tell the data source to stop
     win.closing.connect(
         queue_consumer.stop_data, QtCore.Qt.ConnectionType.DirectConnection
     )
@@ -397,7 +451,6 @@ def main():
         lambda: ble_command_queue.put(StopCommand()),
         QtCore.Qt.ConnectionType.DirectConnection,
     )
-    # when the thread has ended, delete the data source from memory
     data_thread.finished.connect(queue_consumer.deleteLater)
 
     try:
@@ -405,7 +458,7 @@ def main():
         data_thread.start()
         app.run()
     finally:
-        camera_process.terminate()
+        # camera_process.terminate()  # still unused
         ble_process.terminate()
     print("Waiting for data source to close gracefully...")
     data_thread.wait(1000)

@@ -371,6 +371,11 @@ def get_focus_target(dist_to_camera):
     f = np.interp([dist_to_camera], focus_targets[:, 0], focus_targets[:, 1])[0]
     return 5 * round(f / 5)  # Webcam only supports multiples of 5
 
+# Locate the params file regardless of working directory
+BASE_DIR = Path(__file__).resolve().parent  # -> Code/IMU/app
+PARAMS_PATH = BASE_DIR / "params" / "camera_params_c922_f30.yml"
+
+camera_matrix, dist_coeffs = read_camera_parameters(str(PARAMS_PATH))
 
 def run_tracker(
     on_estimate: Optional[Callable[[CameraReading], None]],
@@ -379,9 +384,14 @@ def run_tracker(
 ):
     cv2.namedWindow("Tracker", cv2.WINDOW_KEEPRATIO)
     cv2.resizeWindow("Tracker", 1050, int(1050 * 1080 / 1920))
-    camera_matrix, dist_coeffs = read_camera_parameters(
-        "./params/camera_params_c922_f30.yml"
-    )
+
+    # ---- fixed path handling ----
+    from pathlib import Path
+    BASE_DIR = Path(__file__).resolve().parent
+    PARAMS_PATH = BASE_DIR / "params" / "camera_params_c922_f30.yml"
+    camera_matrix, dist_coeffs = read_camera_parameters(str(PARAMS_PATH))
+    # -----------------------------
+
     marker_positions = load_marker_positions()
     print("Opening webcam..")
     webcam = get_webcam()
