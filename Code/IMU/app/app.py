@@ -305,7 +305,10 @@ class QueueConsumer(QtCore.QObject):
                 if vis is not None:
                     now = time.time()
                     if now - last_log > 0.5:
-                        print("Bridge OK -> imu_pos_cam:", vis["imu_pos_cam"])
+                        # print("Bridge OK -> imu_pos_cam:", vis["imu_pos_cam"])
+                        # print("Bridge OK -> tip_pos_cam:", vis["tip_pos_cam"])
+
+                        # print("IMU (camera frame):", vis["imu_pos_cam"], "  TIP (camera frame):", vis["tip_pos_cam"])
                         last_log = now
             except Exception as e:
                 # If bridge has a hiccup, don't kill the loop
@@ -329,6 +332,9 @@ class QueueConsumer(QtCore.QObject):
                     np.asarray(vis["imu_pos_cam"]).flatten(),  # (3,)
                     np.asarray(vis["R_cam"])                    # (3x3)
                 )
+                if smoothed_tip_pos:
+                    tip = smoothed_tip_pos[-1]
+                    print(f"Pen tip (latest): x={tip[0]:.3f}, y={tip[1]:.3f}, z={tip[2]:.3f}")
                 self.new_data.emit(CameraUpdateData(position_replace=smoothed_tip_pos))
 
             # ---- IMU QUEUE (unchanged logic) ----
@@ -454,7 +460,7 @@ def main():
     data_thread.finished.connect(queue_consumer.deleteLater)
 
     try:
-        win.show()
+        # win.show()
         data_thread.start()
         app.run()
     finally:

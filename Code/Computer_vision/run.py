@@ -91,7 +91,7 @@ def start(headless: bool = True, cam_index: int = 0) -> None:
                     _publish_pose(row_publish)
                     dets += 1
 
-                    if not headless:
+                    if not headless and (frames % 5) != 0:
                         # Draw coordinate axes
                         rvec, _ = cv2.Rodrigues(R)
                         cv2.drawFrameAxes(

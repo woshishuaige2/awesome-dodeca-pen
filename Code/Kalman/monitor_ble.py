@@ -62,6 +62,8 @@ def unpack_imu_data_packet(data: bytearray):
     accel = calc_accel(np.array([ax, ay, az], dtype=np.float64) * 9.8)
     gyro = calc_gyro(np.array([gx, gy, gz], dtype=np.float64) * np.pi / 180.0)
 
+    print(accel)
+
     return StylusReading(accel, gyro, 0, pressure / 2**16)
 
 
@@ -167,7 +169,7 @@ async def monitor_ble_async(data_queue: mp.Queue, command_queue: mp.Queue, phi_q
             counter += 1
 
             # Display results
-            print("Phi: " + str(phi_degrees) + " Theta: " + str(theta_degrees))
+            # print("Phi: " + str(phi_degrees) + " Theta: " + str(theta_degrees))
 
             sleep(sleep_time)
 

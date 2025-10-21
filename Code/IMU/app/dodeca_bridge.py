@@ -72,7 +72,7 @@ def make_ekf_measurements(tip_offset_body: np.ndarray = TIP_OFFSET_BODY,
     t_cam_m = t_cam * 0.001
 
     # Offsets are defined in the body frame; transform to camera frame.
-    tip_pos_cam = t_cam + R_cam @ tip_offset_body
+    tip_pos_cam = t_cam_m + R_cam @ tip_offset_body
     # IMU = tip - (IMU→tip)
     imu_pos_cam = t_cam_m + R_cam @ (tip_offset_body - imu_to_tip_body)
 
