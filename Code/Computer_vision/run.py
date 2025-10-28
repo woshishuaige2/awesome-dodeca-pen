@@ -24,10 +24,88 @@ color_cam_dist   = np.load(COLOR_CAM_DIST_PATH)
 # shape (1,12): [tx,ty,tz, r00 r01 r02 r10 r11 r12 r20 r21 r22]
 object_pose: np.ndarray | None = None
 
+# >>> shared state for pen tip positions from IMU app <<<
+raw_pen_tip_position: np.ndarray | None = None
+smoothed_pen_tip_position: np.ndarray | None = None
+
+# >>> shutdown flag for graceful termination <<<
+cv_shutdown_requested: bool = False
+
 def _publish_pose(obj_1x12: np.ndarray) -> None:
     """Make the latest pose visible to dodeca_bridge in-process."""
     global object_pose
     object_pose = obj_1x12
+
+def _publish_pen_tip_positions(raw_pos: np.ndarray = None, smoothed_pos: np.ndarray = None) -> None:
+    """Make the pen tip positions visible for visualization in CV window."""
+    global raw_pen_tip_position, smoothed_pen_tip_position
+    if raw_pos is not None:
+        raw_pen_tip_position = raw_pos
+    if smoothed_pos is not None:
+        smoothed_pen_tip_position = smoothed_pos
+
+def _request_shutdown() -> None:
+    """Signal that CV window is shutting down."""
+    global cv_shutdown_requested
+    cv_shutdown_requested = True
+
+def _is_shutdown_requested() -> bool:
+    """Check if CV window shutdown has been requested."""
+    global cv_shutdown_requested
+    return cv_shutdown_requested
+
+def _draw_pen_tip_positions(rgb_frame, ddc_params):
+    """Draw raw and smoothed pen tip positions on the CV frame."""
+    global raw_pen_tip_position, smoothed_pen_tip_position
+    
+    frame_height, frame_width = rgb_frame.shape[:2]
+    
+    # Convert 3D positions to 2D image coordinates
+    if raw_pen_tip_position is not None:
+        try:
+            # Ensure the position is a numpy array and has the right shape
+            pos_3d = np.asarray(raw_pen_tip_position, dtype=np.float32)
+            if pos_3d.size >= 3:
+                pos_3d = pos_3d.flatten()[:3]  # Take first 3 elements
+                # Convert from meters to mm for projection
+                pos_3d = pos_3d * 1000.0
+                pos_2d, _ = cv2.projectPoints(
+                    pos_3d.reshape(1, 1, 3), 
+                    np.zeros((3, 1)), np.zeros((3, 1)),  # No additional rotation/translation
+                    ddc_params.mtx, ddc_params.dist
+                )
+                x, y = int(pos_2d[0, 0, 0]), int(pos_2d[0, 0, 1])
+                
+                # Only draw if within frame bounds
+                if 0 <= x < frame_width and 0 <= y < frame_height:
+                    # Draw raw position as red circle
+                    cv2.circle(rgb_frame, (x, y), 8, (0, 0, 255), -1)  # Red filled circle
+                    cv2.putText(rgb_frame, "Raw", (x + 12, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+        except Exception as e:
+            pass  # Ignore projection errors
+    
+    if smoothed_pen_tip_position is not None:
+        try:
+            # Ensure the position is a numpy array and has the right shape
+            pos_3d = np.asarray(smoothed_pen_tip_position, dtype=np.float32)
+            if pos_3d.size >= 3:
+                pos_3d = pos_3d.flatten()[:3]  # Take first 3 elements
+                # Convert from meters to mm for projection
+                pos_3d = pos_3d * 1000.0
+                pos_2d, _ = cv2.projectPoints(
+                    pos_3d.reshape(1, 1, 3), 
+                    np.zeros((3, 1)), np.zeros((3, 1)),  # No additional rotation/translation
+                    ddc_params.mtx, ddc_params.dist
+                )
+                x, y = int(pos_2d[0, 0, 0]), int(pos_2d[0, 0, 1])
+                
+                # Only draw if within frame bounds
+                if 0 <= x < frame_width and 0 <= y < frame_height:
+                    # Draw smoothed position as green circle
+                    cv2.circle(rgb_frame, (x, y), 8, (0, 255, 0), -1)  # Green filled circle
+                    cv2.putText(rgb_frame, "Smoothed", (x + 12, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+        except Exception as e:
+            pass  # Ignore projection errors
 
 def start(headless: bool = True, cam_index: int = 0) -> None:
     """
@@ -105,14 +183,20 @@ def start(headless: bool = True, cam_index: int = 0) -> None:
                 print(f"[CV] fps={frames}, detections={dets}")
                 frames, dets, t0 = 0, 0, time.time()
 
+            # Draw pen tip positions if available
+            if not headless:
+                _draw_pen_tip_positions(rgb, ddc_params)
+                
             if not headless:
                 cv2.imshow("RGB-D Live Stream", rgb)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
+                    _request_shutdown()
                     break
             else:
                 time.sleep(0.001)
 
     finally:
+        _request_shutdown()  # Ensure shutdown is signaled
         cap.release()
         if not headless:
             cv2.destroyAllWindows()

@@ -86,10 +86,28 @@ def make_ekf_measurements(tip_offset_body: np.ndarray = TIP_OFFSET_BODY,
         "quality": 1.0,
     }
 
+# --- Pen tip position publishing ---
+def publish_pen_tip_positions(raw_pos: np.ndarray = None, smoothed_pos: np.ndarray = None):
+    """
+    Send pen tip positions back to the CV window for visualization.
+    """
+    if dcv_run is not None and hasattr(dcv_run, "_publish_pen_tip_positions"):
+        dcv_run._publish_pen_tip_positions(raw_pos, smoothed_pos)
+
+def is_cv_shutdown_requested() -> bool:
+    """
+    Check if the CV window has requested shutdown.
+    """
+    if dcv_run is not None and hasattr(dcv_run, "_is_shutdown_requested"):
+        return dcv_run._is_shutdown_requested()
+    return False
+
 # Expose geometry constants if callers import them
 __all__ = [
     "TIP_OFFSET_BODY",
     "IMU_TO_TIP_BODY",
     "get_vision_reading",
     "make_ekf_measurements",
+    "publish_pen_tip_positions",
+    "is_cv_shutdown_requested",
 ]

@@ -25,7 +25,8 @@ from app.filter import DpointFilter, blend_new_data
 from app.marker_tracker import CameraReading, run_tracker
 from app.monitor_ble import StopCommand, StylusReading, monitor_ble
 
-from app.dodeca_bridge import make_ekf_measurements, TIP_OFFSET_BODY, IMU_TO_TIP_BODY
+from app.dodeca_bridge import make_ekf_measurements, TIP_OFFSET_BODY, IMU_TO_TIP_BODY, publish_pen_tip_positions, is_cv_shutdown_requested
+from app import dodeca_bridge
 
 # ... existing imports ...
 import numpy as np
@@ -299,6 +300,12 @@ class QueueConsumer(QtCore.QObject):
             if self._should_end:
                 print("Data source saw that it was told to stop")
                 break
+            
+            # Check if CV window has requested shutdown
+            if is_cv_shutdown_requested():
+                print("CV window requested shutdown, stopping queue consumer")
+                self._should_end = True
+                break
             # ---- NEW: poll DodecaBall vision via bridge (no tracker_queue) ----
             try:
                 vis = make_ekf_measurements(TIP_OFFSET_BODY, IMU_TO_TIP_BODY)
@@ -335,6 +342,11 @@ class QueueConsumer(QtCore.QObject):
                 if smoothed_tip_pos:
                     tip = smoothed_tip_pos[-1]
                     print(f"Pen tip (latest): x={tip[0]:.3f}, y={tip[1]:.3f}, z={tip[2]:.3f}")
+                    
+                    # Send both raw and smoothed positions back to CV window
+                    raw_tip_pos = np.asarray(vis["tip_pos_cam"])  # Raw tip position from vision
+                    publish_pen_tip_positions(raw_pos=raw_tip_pos, smoothed_pos=tip)
+                
                 self.new_data.emit(CameraUpdateData(position_replace=smoothed_tip_pos))
 
             # ---- IMU QUEUE (unchanged logic) ----
@@ -418,6 +430,20 @@ def main():
     )
     app = use_app("pyqt6")
     app.create()
+    
+    def check_cv_shutdown():
+        """Periodically check if CV window has requested shutdown."""
+        if is_cv_shutdown_requested():
+            print("CV window requested shutdown, closing application...")
+            # Stop BLE process
+            try:
+                ble_command_queue.put(StopCommand())
+            except:
+                pass
+            # Stop the data thread
+            queue_consumer.stop_data()
+            # Quit the Qt application
+            app.quit()
 
     tracker_queue = mp.Queue()
     ble_queue = mp.Queue()
@@ -458,9 +484,14 @@ def main():
         QtCore.Qt.ConnectionType.DirectConnection,
     )
     data_thread.finished.connect(queue_consumer.deleteLater)
+    
+    # Set up a timer to periodically check for CV shutdown (keeps main window hidden)
+    shutdown_timer = QtCore.QTimer()
+    shutdown_timer.timeout.connect(check_cv_shutdown)
+    shutdown_timer.start(500)  # Check every 500ms
 
     try:
-        # win.show()
+        # Keep main window hidden to avoid lag - just use CV window for visualization
         data_thread.start()
         app.run()
     finally:
