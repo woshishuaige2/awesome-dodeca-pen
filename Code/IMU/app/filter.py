@@ -59,13 +59,17 @@ def initial_state(position=None, orientation=None):
 
 
 def get_tip_pose(state: Mat) -> Tuple[Mat, Mat]:
+    """
+    Return the pen tip position and orientation from the filter state.
+    
+    Note: The filter tracks the position that the vision system provides as
+    'imu_pos_cam'. Due to IMU_TO_TIP_BODY = [0,0,0] in dodeca_bridge.py,
+    imu_pos_cam equals tip_pos_cam, so the filter state position IS the tip position.
+    No additional transformation is needed.
+    """
     pos = state[i_pos]
     orientation = state[i_quat]
-    orientation_quat = Quaternion(array=orientation)
-    tip_pos = pos - orientation_quat.rotate(
-        np.array([0, STYLUS_LENGTH, 0]) + IMU_OFFSET
-    )
-    return (tip_pos, orientation)
+    return (pos, orientation)
 
 
 def get_orientation_quat(orientation_mat_opencv: Mat):

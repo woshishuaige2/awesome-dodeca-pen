@@ -341,10 +341,14 @@ class QueueConsumer(QtCore.QObject):
                 )
                 if smoothed_tip_pos:
                     tip = smoothed_tip_pos[-1]
-                    print(f"Pen tip (latest): x={tip[0]:.3f}, y={tip[1]:.3f}, z={tip[2]:.3f}")
+                    raw_tip_pos = np.asarray(vis["tip_pos_cam"])  # Raw tip position from vision
+                    
+                    # Debug: compare raw vs smoothed
+                    print(f"Raw tip:      x={raw_tip_pos[0]:.3f}, y={raw_tip_pos[1]:.3f}, z={raw_tip_pos[2]:.3f}")
+                    print(f"Smoothed tip: x={tip[0]:.3f}, y={tip[1]:.3f}, z={tip[2]:.3f}")
+                    print(f"Difference:   x={tip[0]-raw_tip_pos[0]:.3f}, y={tip[1]-raw_tip_pos[1]:.3f}, z={tip[2]-raw_tip_pos[2]:.3f}")
                     
                     # Send both raw and smoothed positions back to CV window
-                    raw_tip_pos = np.asarray(vis["tip_pos_cam"])  # Raw tip position from vision
                     publish_pen_tip_positions(raw_pos=raw_tip_pos, smoothed_pos=tip)
                 
                 self.new_data.emit(CameraUpdateData(position_replace=smoothed_tip_pos))
