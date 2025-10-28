@@ -60,6 +60,9 @@ def _draw_pen_tip_positions(rgb_frame, ddc_params):
     
     frame_height, frame_width = rgb_frame.shape[:2]
     
+    raw_2d = None
+    smoothed_2d = None
+    
     # Convert 3D positions to 2D image coordinates
     if raw_pen_tip_position is not None:
         try:
@@ -78,6 +81,7 @@ def _draw_pen_tip_positions(rgb_frame, ddc_params):
                 
                 # Only draw if within frame bounds
                 if 0 <= x < frame_width and 0 <= y < frame_height:
+                    raw_2d = (x, y)
                     # Draw raw position as red circle
                     cv2.circle(rgb_frame, (x, y), 8, (0, 0, 255), -1)  # Red filled circle
                     cv2.putText(rgb_frame, "Raw", (x + 12, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
@@ -101,11 +105,29 @@ def _draw_pen_tip_positions(rgb_frame, ddc_params):
                 
                 # Only draw if within frame bounds
                 if 0 <= x < frame_width and 0 <= y < frame_height:
+                    smoothed_2d = (x, y)
                     # Draw smoothed position as green circle
                     cv2.circle(rgb_frame, (x, y), 8, (0, 255, 0), -1)  # Green filled circle
                     cv2.putText(rgb_frame, "Smoothed", (x + 12, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
         except Exception as e:
             pass  # Ignore projection errors
+    
+    # Draw line connecting raw and smoothed, and show 3D distance
+    if raw_2d is not None and smoothed_2d is not None and raw_pen_tip_position is not None and smoothed_pen_tip_position is not None:
+        # Draw connecting line
+        cv2.line(rgb_frame, raw_2d, smoothed_2d, (255, 255, 0), 2)  # Yellow line
+        
+        # Calculate and display 3D distance
+        raw_3d = np.asarray(raw_pen_tip_position).flatten()[:3]
+        smoothed_3d = np.asarray(smoothed_pen_tip_position).flatten()[:3]
+        distance_m = np.linalg.norm(raw_3d - smoothed_3d)
+        distance_mm = distance_m * 1000.0
+        
+        # Display distance at midpoint
+        mid_x = (raw_2d[0] + smoothed_2d[0]) // 2
+        mid_y = (raw_2d[1] + smoothed_2d[1]) // 2
+        cv2.putText(rgb_frame, f"{distance_mm:.1f}mm", (mid_x, mid_y - 10), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
 
 def start(headless: bool = True, cam_index: int = 0) -> None:
     """

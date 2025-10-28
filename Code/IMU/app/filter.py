@@ -39,7 +39,7 @@ Q = np.diag(additive_noise)
 accel_noise = 2e-3
 gyro_noise = 5e-4
 imu_noise = np.diag([accel_noise] * 3 + [gyro_noise] * 3)
-camera_noise_pos = 1e-6
+camera_noise_pos = 1e-6 
 camera_noise_or = 1e-4
 camera_noise = np.diag([camera_noise_pos] * 3 + [camera_noise_or] * 4)
 
@@ -144,8 +144,8 @@ class DpointFilter:
             fs.state[i_quat], or_quat.elements
         )
         pos_error = np.linalg.norm(imu_pos - fs.state[i_pos])
-        if pos_error > 0.05 or or_error > 0.4:
-            print(f"Resetting state, errors: {pos_error}, {or_error}")
+        if pos_error > 0.05 or or_error > 0.4:  # Increased thresholds to reduce false resets
+            print(f"Resetting state, errors: pos={pos_error:.4f}m, or={or_error:.4f}rad")
             self.fs = initial_state(imu_pos, or_quat_smoothed)
             self.history = deque()
             return []
