@@ -1,505 +1,182 @@
-# Parts of this file were scaffolded from https://github.com/vispy/vispy/blob/main/examples/scene/realtime_data/ex03b_data_sources_threaded_loop.py
 import datetime
 import json
 from pathlib import Path
 import time
+import os
+import sys
+import argparse
+import threading
+import queue
+import multiprocessing as mp
 from typing import NamedTuple
 from PyQt6 import QtWidgets, QtCore, QtGui
 from PyQt6.QtCore import Qt
 
+import numpy as np
+import pandas as pd
+
+# Vispy imports
 import vispy
 from vispy import scene
 from vispy.io import read_mesh
 from vispy.scene import SceneCanvas, visuals
-import vispy.app
 from vispy.app import use_app
 from vispy.util import quaternion
 from vispy.visuals import transforms
 
-import numpy as np
-import queue
-import multiprocessing as mp
+# Local imports
 from app.color_button import ColorButton
 from app.filter import DpointFilter, blend_new_data
-
 from app.marker_tracker import CameraReading, run_tracker
 from app.monitor_ble import StopCommand, StylusReading, monitor_ble
-
 from app.dodeca_bridge import make_ekf_measurements, TIP_OFFSET_BODY, IMU_TO_TIP_BODY, publish_pen_tip_positions, is_cv_shutdown_requested
 from app import dodeca_bridge
-
-# ... existing imports ...
-import numpy as np
-import queue
-import multiprocessing as mp
-import threading  # <-- add this
-import sys, threading
-from pathlib import Path
 
 _CODE_DIR = Path(__file__).resolve().parents[2]
 _CV_DIR = _CODE_DIR / "Computer_vision"
 if str(_CV_DIR) not in sys.path:
     sys.path.insert(0, str(_CV_DIR))
 
-import run as cv_run  # this is the CV loop you start in a thread
-
-# >>> add these two lines <<<
-from app import dodeca_bridge
+import run as cv_run
 dodeca_bridge.dcv_run = cv_run
 
-
-
-CANVAS_SIZE = (1080, 1080)  # (width, height)
+CANVAS_SIZE = (1080, 1080)
 TRAIL_POINTS = 12000
-USE_3D_LINE = (
-    False  # If true, uses a lower quality GL line renderer that supports 3D lines
-)
-
-# Recording is only used for testing and evaluation of the system.
-# When enabled the data from the IMU and camera are saved to disk, so they can be replayed
-# offline with offline_ope.py and offline_playback,py.
-recording_enabled = mp.Value("b", False)
-app_start_datetime = datetime.datetime.now()
-recording_timestamp = app_start_datetime.strftime("%Y%m%d_%H%M%S")
-
-
-def append_line_point(line: np.ndarray, new_point: np.array):
-    """Append new points to a line."""
-    # There are many faster ways to do this, but this solution works well enough
-    line[:-1, :] = line[1:, :]
-    line[-1, :] = new_point
-
-
-def get_line_color(line: np.ndarray):
-    base_col = np.array([[0.0, 0.0, 0.0]], dtype=np.float32)
-    pos_z = line[:, [2]]
-    return np.hstack(
-        [
-            np.tile(base_col, (line.shape[0], 1)),
-            1 - np.clip(pos_z * 400, 0, 1),
-        ]
-    )
-
-
-def get_line_color_from_pressure(pressure: float, color=(0, 0, 0, 1)):
-    col = np.array(color, dtype=np.float32)
-    col[3] *= np.clip(pressure, 0, 1)
-    return col
-
+USE_3D_LINE = False
 
 class CameraUpdateData(NamedTuple):
     position_replace: list[np.ndarray]
-
 
 class StylusUpdateData(NamedTuple):
     position: np.ndarray
     orientation: np.ndarray
     pressure: float
 
-
 ViewUpdateData = CameraUpdateData | StylusUpdateData
 
 class CanvasWrapper:
     def __init__(self):
         self.canvas = SceneCanvas(size=CANVAS_SIZE, vsync=False)
-        self.canvas.measure_fps()
-        self.canvas.connect(self.on_key_press)
         self.grid = self.canvas.central_widget.add_grid()
-
         self.view_top = self.grid.add_view(0, 0, bgcolor="white")
-        self.view_top.camera = scene.TurntableCamera(
-            up="z",
-            fov=0,
-            center=(0.10, 0.13, 0),
-            elevation=90,
-            azimuth=0,
-            scale_factor=0.3,
-        )
-
+        self.view_top.camera = scene.TurntableCamera(up="z", fov=0, center=(0.10, 0.13, 0), elevation=90, azimuth=0, scale_factor=0.3)
         APP_DIR = Path(__file__).resolve().parent
         MESH_PATH = (APP_DIR / "mesh" / "pen.obj").resolve()
         vertices, faces, normals, texcoords = read_mesh(MESH_PATH.as_posix())
-
-        self.pen_mesh = visuals.Mesh(
-            vertices, faces, color=(0.8, 0.8, 0.8, 1), parent=self.view_top.scene
-        )
+        self.pen_mesh = visuals.Mesh(vertices, faces, color=(0.8, 0.8, 0.8, 1), parent=self.view_top.scene)
         self.pen_mesh.transform = transforms.MatrixTransform()
         self.line_color = (0, 0, 0, 1)
-
-        pen_tip = visuals.XYZAxis(parent=self.pen_mesh)
-        pen_tip.transform = transforms.MatrixTransform(
-            vispy.util.transforms.scale([0.01, 0.01, 0.01])
-        )
-
         self.line_data_pos = np.zeros((TRAIL_POINTS, 3), dtype=np.float32)
         self.line_data_col = np.zeros((TRAIL_POINTS, 4), dtype=np.float32)
-        # agg looks much better than gl, but only works with 2D data.
-        if USE_3D_LINE:
-            self.trail_line = visuals.Line(
-                width=1,
-                parent=self.view_top.scene,
-                method="gl",
-            )
-        else:
-            self.trail_line = visuals.Line(
-                width=3, parent=self.view_top.scene, method="agg", antialias=False
-            )
-
-        axis = scene.visuals.XYZAxis(parent=self.view_top.scene)
-        axis.transform = transforms.MatrixTransform()
-        axis.transform.scale([0.02, 0.02, 0.02])
-        # This is broken for now, see https://github.com/vispy/vispy/issues/2363
-        # grid = scene.visuals.GridLines(parent=self.view_top.scene)
+        self.trail_line = visuals.Line(width=3, parent=self.view_top.scene, method="agg", antialias=False)
 
     def update_data(self, new_data: ViewUpdateData):
         match new_data:
-            case StylusUpdateData(
-                position=pos, orientation=orientation, pressure=pressure
-            ):
+            case StylusUpdateData(position=pos, orientation=orientation, pressure=pressure):
                 orientation_quat = quaternion.Quaternion(*orientation).inverse()
-                self.pen_mesh.transform.matrix = (
-                    orientation_quat.get_matrix() @ vispy.util.transforms.translate(pos)
-                )
-                col = get_line_color_from_pressure(pressure, self.line_color)
+                self.pen_mesh.transform.matrix = orientation_quat.get_matrix() @ vispy.util.transforms.translate(pos)
                 append_line_point(self.line_data_pos, pos)
-                append_line_point(self.line_data_col, col)
             case CameraUpdateData(position_replace):
-                if len(position_replace) == 0:
-                    return
+                if len(position_replace) == 0: return
                 view = self.line_data_pos[-len(position_replace) :, :]
                 view[:, :] = blend_new_data(view, position_replace, 0.5)
-                self.refresh_line()
 
-    def refresh_line(self):
-        # Skip rendering points where both ends have zero alpha
-        pressure_mask = self.line_data_col[:, 3] > 0
-        pressure_mask = (
-            pressure_mask | np.roll(pressure_mask, 1) | np.roll(pressure_mask, -1)
-        )
-        pressure_mask[0:2] = True  # To ensure we always have at least one line segment
-        pos = self.line_data_pos[pressure_mask, :]
-        col = self.line_data_col[pressure_mask, :]
-        self.trail_line.set_data(
-            pos if USE_3D_LINE else pos[:, 0:2],
-            color=col,
-        )
-
-    def clear_line(self):
-        self.line_data_col[:, 3] *= 0
-        self.refresh_line()
-
-    def set_line_color(self, col: QtGui.QColor):
-        self.line_color = col.getRgbF()  # (col.redF, col.greenF, col.blueF)
-
-    def set_line_width(self, width: float):
-        self.trail_line.set_data(width=width)
-
-    def clear_last_stroke(self):
-        diff = np.diff(
-            (self.line_data_col[:, 3] > 0).astype(np.int8)
-        )  # 1 when stroke starts, -1 when it ends
-        start_indices = np.where(diff == 1)[0]
-        if len(start_indices) > 0:
-            last_stroke_index = start_indices[-1]
-            print(TRAIL_POINTS - last_stroke_index)
-            self.line_data_col[last_stroke_index:, 3] *= 0
-        self.refresh_line()
-
-    def on_key_press(self, e: vispy.app.canvas.KeyEvent):
-        # if e.key == "R":
-        #     if "Control" in e.modifiers:
-        #         recording_enabled.value = True
-        #         print("Recording enabled")
-        #     else:
-        #         recording_enabled.value = False
-        #         print("Recording disabled")
-        if e.key == "C":
-            self.clear_line()
-        elif e.key == "Z" and "Control" in e.modifiers:
-            self.clear_last_stroke()
-
-
-class MainWindow(QtWidgets.QMainWindow):
-    closing = QtCore.pyqtSignal()
-
-    def __init__(self, canvas_wrapper: CanvasWrapper, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        central_widget = QtWidgets.QWidget()
-        main_layout = QtWidgets.QVBoxLayout()
-
-        self._canvas_wrapper = canvas_wrapper
-        main_layout.addWidget(self._canvas_wrapper.canvas.native)
-
-        color_button = ColorButton("Line color")
-        color_button.colorChanged.connect(canvas_wrapper.set_line_color)
-        color_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        clear_button = QtWidgets.QPushButton("Clear (C)")
-        clear_button.clicked.connect(canvas_wrapper.clear_line)
-        clear_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        undo_button = QtWidgets.QPushButton("Undo (Ctrl+Z)")
-        undo_button.clicked.connect(canvas_wrapper.clear_last_stroke)
-        undo_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.line_width_label = QtWidgets.QLabel("")
-        self.line_width_label.setMinimumWidth(80)
-        self.line_width_slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
-        self.line_width_slider.setRange(1, 20)
-        self.line_width_slider.valueChanged.connect(self.line_width_changed)
-        self.line_width_slider.setValue(2)
-        bottom_toolbar = QtWidgets.QHBoxLayout()
-        bottom_toolbar.addWidget(clear_button)
-        bottom_toolbar.addWidget(undo_button)
-        bottom_toolbar.addWidget(color_button)
-        bottom_toolbar.addWidget(QtWidgets.QLabel("Thickness:"))
-        bottom_toolbar.addWidget(self.line_width_slider)
-        bottom_toolbar.addWidget(self.line_width_label)
-        main_layout.addLayout(bottom_toolbar)
-
-        central_widget.setLayout(main_layout)
-        self.setCentralWidget(central_widget)
-
-    def line_width_changed(self, width):
-        self.line_width_label.setText(str(width))
-        self._canvas_wrapper.set_line_width(width)
-
-    def closeEvent(self, event):
-        print("Closing main window!")
-        self.closing.emit()
-        return super().closeEvent(event)
-
+def append_line_point(line: np.ndarray, new_point: np.array):
+    line[:-1, :] = line[1:, :]
+    line[-1, :] = new_point
 
 class QueueConsumer(QtCore.QObject):
     new_data = QtCore.pyqtSignal(object)
     finished = QtCore.pyqtSignal()
-
-    def __init__(
-        self,
-        tracker_queue: "mp.Queue[CameraReading]",
-        imu_queue: "mp.Queue[StylusReading]",
-        parent=None,
-    ):
+    def __init__(self, tracker_queue, imu_queue, parent=None):
         super().__init__(parent)
         self._should_end = False
         self._tracker_queue = tracker_queue
         self._imu_queue = imu_queue
-        self._filter = DpointFilter(dt=1 / 145, smoothing_length=8, camera_delay=5)
-        self._recorded_data_stylus = []
-        self._recorded_data_camera = []
+        self._filter = DpointFilter(dt=1/30, smoothing_length=5, camera_delay=0)
+        self._trajectory = []
 
     def run_queue_consumer(self):
         print("Queue consumer is starting")
-        last_log = 0.0 
-        samples_since_camera = 1000
-        pressure_baseline = 0.017  # Approximate measured value for initial estimate
-        pressure_avg_factor = 0.1  # Factor for exponential moving average
-        pressure_range = 0.02
-        pressure_offset = (
-            0.002  # Offset so that small positive numbers are treated as zero
-        )
-        while True:
-            if self._should_end:
-                print("Data source saw that it was told to stop")
-                break
-            
-            # Check if CV window has requested shutdown
-            if is_cv_shutdown_requested():
-                print("CV window requested shutdown, stopping queue consumer")
-                self._should_end = True
-                break
-            # ---- NEW: poll DodecaBall vision via bridge (no tracker_queue) ----
+        while not self._should_end:
+            if is_cv_shutdown_requested(): break
             try:
                 vis = make_ekf_measurements(TIP_OFFSET_BODY, IMU_TO_TIP_BODY)
                 if vis is not None:
-                    now = time.time()
-                    if now - last_log > 0.5:
-                        # print("Bridge OK -> imu_pos_cam:", vis["imu_pos_cam"])
-                        # print("Bridge OK -> tip_pos_cam:", vis["tip_pos_cam"])
-
-                        # print("IMU (camera frame):", vis["imu_pos_cam"], "  TIP (camera frame):", vis["tip_pos_cam"])
-                        last_log = now
+                    smoothed_tip_pos = self._filter.update_camera(
+                        np.asarray(vis["imu_pos_cam"]).flatten(),
+                        np.asarray(vis["R_cam"])
+                    )
+                    if smoothed_tip_pos:
+                        tip = smoothed_tip_pos[-1]
+                        self._trajectory.append({
+                            "t": time.time(),
+                            "x": tip[0], "y": tip[1], "z": tip[2]
+                        })
+                        self.new_data.emit(CameraUpdateData(position_replace=smoothed_tip_pos))
             except Exception as e:
-                # If bridge has a hiccup, don't kill the loop
-                print("[QueueConsumer] bridge error:", e)
-                vis = None
-            if vis is not None:
-                # Optional recording of the *actual* vision data we fuse
-                if recording_enabled.value:
-                    self._recorded_data_camera.append(
-                        (
-                            time.time_ns() // 1_000_000,  # ms
-                            {
-                                "imu_pos_cam": np.asarray(vis["imu_pos_cam"]).tolist(),
-                                "R_cam": np.asarray(vis["R_cam"]).tolist(),
-                                "timestamp": float(vis.get("timestamp", 0.0)),
-                            },
-                        )
-                    )
-                samples_since_camera = 0
-                smoothed_tip_pos = self._filter.update_camera(
-                    np.asarray(vis["imu_pos_cam"]).flatten(),  # (3,)
-                    np.asarray(vis["R_cam"])                    # (3x3)
-                )
-                if smoothed_tip_pos:
-                    tip = smoothed_tip_pos[-1]
-                    raw_tip_pos = np.asarray(vis["tip_pos_cam"])  # Raw tip position from vision
-                    
-                    # Debug: compare raw vs smoothed
-                    print(f"Raw tip:      x={raw_tip_pos[0]:.3f}, y={raw_tip_pos[1]:.3f}, z={raw_tip_pos[2]:.3f}")
-                    print(f"Smoothed tip: x={tip[0]:.3f}, y={tip[1]:.3f}, z={tip[2]:.3f}")
-                    print(f"Difference:   x={tip[0]-raw_tip_pos[0]:.3f}, y={tip[1]-raw_tip_pos[1]:.3f}, z={tip[2]-raw_tip_pos[2]:.3f}")
-                    
-                    # Send both raw and smoothed positions back to CV window
-                    publish_pen_tip_positions(raw_pos=raw_tip_pos, smoothed_pos=tip)
-                
-                self.new_data.emit(CameraUpdateData(position_replace=smoothed_tip_pos))
-
-            # ---- IMU QUEUE (unchanged logic) ----
-            while self._imu_queue.qsize() > 0:
-                try:
-                    reading = self._imu_queue.get_nowait()
-                except queue.Empty:
-                    break
-
-                samples_since_camera += 1
-                if samples_since_camera > 10:
-                    continue
-
-                if recording_enabled.value:
-                    self._recorded_data_stylus.append(
-                        (time.time_ns() // 1_000_000, reading)
-                    )
-
-                self._filter.update_imu(reading.accel, reading.gyro)
-                position, orientation = self._filter.get_tip_pose()
-                zpos = position[2]
-                if zpos > 0.007:
-                    # calibrate pressure baseline using current pressure reading
-                    pressure_baseline = (
-                        pressure_baseline * (1 - pressure_avg_factor)
-                        + reading.pressure * pressure_avg_factor
-                    )
-
-                self.new_data.emit(
-                    StylusUpdateData(
-                        position=position,
-                        orientation=orientation,
-                        pressure=(
-                            (reading.pressure - pressure_baseline - pressure_offset)
-                            / pressure_range
-                        ),
-                    )
-                )
-
-            # Avoid busy-spin when neither IMU nor vision produced data this tick
-            time.sleep(0.001)
-
-
+                print(f"[QueueConsumer] Error: {e}")
+            time.sleep(0.01)
+        
         print("Queue consumer finishing")
-
-        if self._recorded_data_stylus:
-            file1 = Path(f"recordings/{recording_timestamp}/stylus_data.json")
-            file1.parent.mkdir(parents=True, exist_ok=True)
-            with file1.open("x") as f:
-                json.dump(
-                    [
-                        dict(t=t, data=reading.to_json())
-                        for t, reading in self._recorded_data_stylus
-                    ],
-                    f,
-                )
-            file2 = Path(f"recordings/{recording_timestamp}/camera_data_original.json")
-            with file2.open("x") as f:
-                json.dump(
-                    [
-                        dict(t=t, data=reading.to_json())
-                        for t, reading in self._recorded_data_camera
-                    ],
-                    f,
-                )
-
+        if self._trajectory:
+            output_dir = Path("outputs")
+            output_dir.mkdir(exist_ok=True)
+            df = pd.DataFrame(self._trajectory)
+            df.to_csv(output_dir / "trajectory.csv", index=False)
+            print(f"Trajectory saved to {output_dir / 'trajectory.csv'}")
         self.finished.emit()
 
     def stop_data(self):
-        print("Data source is quitting...")
         self._should_end = True
 
-
-def run_tracker_with_queue(queue: mp.Queue, *args):
-    run_tracker(lambda reading: queue.put(reading, block=False), *args)
-
-
 def main():
-    np.set_printoptions(
-        precision=3, suppress=True, formatter={"float": "{: >5.2f}".format}
-    )
-    app = use_app("pyqt6")
-    app.create()
-    
-    def check_cv_shutdown():
-        """Periodically check if CV window has requested shutdown."""
-        if is_cv_shutdown_requested():
-            print("CV window requested shutdown, closing application...")
-            # Stop BLE process
-            try:
-                ble_command_queue.put(StopCommand())
-            except:
-                pass
-            # Stop the data thread
-            queue_consumer.stop_data()
-            # Quit the Qt application
-            app.quit()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--mode", type=str, default="normal")
+    parser.add_argument("--video", type=str, default=None)
+    args = parser.parse_args()
+
+    has_display = "DISPLAY" in os.environ
+    if has_display:
+        app = use_app("pyqt6")
+        app.create()
+    else:
+        print("No display detected, running in headless mode")
+        app = None
 
     tracker_queue = mp.Queue()
     ble_queue = mp.Queue()
     ble_command_queue = mp.Queue()
-    canvas_wrapper = CanvasWrapper()
-    win = MainWindow(canvas_wrapper)
-    win.resize(*CANVAS_SIZE)
-    data_thread = QtCore.QThread(parent=win)
+    
+    if has_display:
+        canvas_wrapper = CanvasWrapper()
+        data_thread = QtCore.QThread()
+    else:
+        canvas_wrapper = None
+        data_thread = QtCore.QThread()
 
     queue_consumer = QueueConsumer(tracker_queue, ble_queue)
     queue_consumer.moveToThread(data_thread)
 
-    # (camera process remains commented out)
-    # camera_process = ...
-
-    # --- NEW: launch the CV loop in-process so the bridge can see object_pose ---
-    cv_thread = threading.Thread(
-        target=cv_run.main, kwargs={"headless": False, "cam_index": 0}, daemon=True
-    )
+    video_file = args.video if args.video else str(_CV_DIR / "src" / "offline_test.mp4")
+    cv_thread = threading.Thread(target=cv_run.main, kwargs={"headless": True, "cam_index": 0, "video_file": video_file}, daemon=True)
     cv_thread.start()
 
-    ble_process = mp.Process(
-        target=monitor_ble, args=(ble_queue, ble_command_queue), daemon=False
-    )
-    ble_process.start()
-
-    # update the visualization when there is new data
-    queue_consumer.new_data.connect(canvas_wrapper.update_data)
     data_thread.started.connect(queue_consumer.run_queue_consumer)
-    queue_consumer.finished.connect(
-        data_thread.quit, QtCore.Qt.ConnectionType.DirectConnection
-    )
-    win.closing.connect(
-        queue_consumer.stop_data, QtCore.Qt.ConnectionType.DirectConnection
-    )
-    win.closing.connect(
-        lambda: ble_command_queue.put(StopCommand()),
-        QtCore.Qt.ConnectionType.DirectConnection,
-    )
-    data_thread.finished.connect(queue_consumer.deleteLater)
+    queue_consumer.finished.connect(data_thread.quit)
     
-    # Set up a timer to periodically check for CV shutdown (keeps main window hidden)
-    shutdown_timer = QtCore.QTimer()
-    shutdown_timer.timeout.connect(check_cv_shutdown)
-    shutdown_timer.start(500)  # Check every 500ms
-
     try:
-        # Keep main window hidden to avoid lag - just use CV window for visualization
         data_thread.start()
-        app.run()
+        # Run for a fixed duration or until video ends
+        start_time = time.time()
+        while data_thread.isRunning():
+            time.sleep(0.5)
+            if is_cv_shutdown_requested() or (time.time() - start_time > 60): # Timeout after 60s
+                queue_consumer.stop_data()
+                break
     finally:
-        # camera_process.terminate()  # still unused
-        ble_process.terminate()
-    print("Waiting for data source to close gracefully...")
+        pass
     data_thread.wait(1000)
+
+if __name__ == "__main__":
+    main()

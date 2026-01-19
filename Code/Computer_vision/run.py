@@ -129,17 +129,32 @@ def _draw_pen_tip_positions(rgb_frame, ddc_params):
         cv2.putText(rgb_frame, f"{distance_mm:.1f}mm", (mid_x, mid_y - 10), 
                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 2)
 
-def start(headless: bool = True, cam_index: int = 0) -> None:
+def start(headless: bool = True, cam_index: int = 0, video_file: str = None) -> None:
     """
     Main vision loop.
     Continuously captures frames, runs marker tracking, converts pose to (1,12),
     and publishes it to the shared global 'object_pose' for EKF fusion.
+    
+    Args:
+        headless: If True, runs without displaying the video window
+        cam_index: Camera index for live capture (ignored if video_file is specified)
+        video_file: Path to offline video file. If specified, uses this instead of live camera.
     """
     global object_pose
 
-    cap = cv2.VideoCapture(cam_index)
+    # >>> MODIFICATION: Support offline video input <<<
+    if video_file is not None:
+        print(f"[CV] Using offline video file: {video_file}")
+        cap = cv2.VideoCapture(video_file)
+    else:
+        # >>> ORIGINAL: Live camera capture <<<
+        cap = cv2.VideoCapture(cam_index)
+    
     if not cap.isOpened():
-        print(f"[CV] Could not open camera index {cam_index}")
+        if video_file is not None:
+            print(f"[CV] Could not open video file: {video_file}")
+        else:
+            print(f"[CV] Could not open camera index {cam_index}")
         return
 
     if not headless:
@@ -224,8 +239,17 @@ def start(headless: bool = True, cam_index: int = 0) -> None:
             cv2.destroyAllWindows()
 
 
-def main(headless: bool = False, cam_index: int = 0) -> None:
-    start(headless=headless, cam_index=cam_index)
+def main(headless: bool = False, cam_index: int = 0, video_file: str = None) -> None:
+    """
+    Entry point for the CV tracking system.
+    
+    Args:
+        headless: If True, runs without displaying the video window
+        cam_index: Camera index for live capture (default: 0)
+        video_file: Path to offline video file. If None, uses live camera.
+                   Example: "offline_test.mp4" or "/path/to/video.mp4"
+    """
+    start(headless=headless, cam_index=cam_index, video_file=video_file)
 
 if __name__ == "__main__":
     main(headless=False)

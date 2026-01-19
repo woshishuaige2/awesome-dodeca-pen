@@ -39,9 +39,22 @@ Q = np.diag(additive_noise)
 accel_noise = 2e-3
 gyro_noise = 5e-4
 imu_noise = np.diag([accel_noise] * 3 + [gyro_noise] * 3)
-camera_noise_pos = 1e-6 
-camera_noise_or = 1e-4
+# >>> MODIFICATION: Adjust noise for CV-only mode <<<
+# We make camera noise very small so it dominates the state
+camera_noise_pos = 1e-9 
+camera_noise_or = 1e-7
 camera_noise = np.diag([camera_noise_pos] * 3 + [camera_noise_or] * 4)
+
+# We make process noise larger so the filter is more responsive to camera updates
+additive_noise = np.zeros(STATE_SIZE)
+additive_noise[i_pos] = 1e-3
+additive_noise[i_vel] = 1e-2
+additive_noise[i_acc] = 100
+additive_noise[i_av] = 50
+additive_noise[i_quat] = 1e-3
+additive_noise[i_accbias] = 0.5e-4
+additive_noise[i_gyrobias] = 1e-5
+Q = np.diag(additive_noise)
 
 
 def initial_state(position=None, orientation=None):
@@ -128,8 +141,16 @@ class DpointFilter:
     def update_camera(
         self, imu_pos: np.ndarray, orientation_mat: np.ndarray
     ) -> list[np.ndarray]:
+        # >>> MODIFICATION: Support CV-only mode <<<
+        # If no history (no IMU updates), we just update the state directly
+        or_quat = get_orientation_quat(orientation_mat)
+        
         if len(self.history) == 0:
-            return []
+            # Direct state update if no IMU data is present
+            self.fs = initial_state(imu_pos, or_quat.elements)
+            # We still need to predict to update the covariance
+            self.fs = ekf_predict(self.fs, self.dt, Q)
+            return [get_tip_pose(self.fs.state)[0]]
 
         # Rollback and store recent IMU measurements
         replay: Deque[HistoryItem] = deque()
@@ -139,16 +160,18 @@ class DpointFilter:
         # Fuse camera in its rightful place
         h = self.history[-1]
         fs = FilterState(h.updated_state, h.updated_statecov)
-        or_quat = get_orientation_quat(orientation_mat)
         or_quat_smoothed, or_error = nearest_quaternion(
             fs.state[i_quat], or_quat.elements
         )
         pos_error = np.linalg.norm(imu_pos - fs.state[i_pos])
-        if pos_error > 0.05 or or_error > 0.4:  # Increased thresholds to reduce false resets
+        
+        # In CV-only mode, we might want to be more lenient with resets
+        if pos_error > 0.5 or or_error > 1.0: 
             print(f"Resetting state, errors: pos={pos_error:.4f}m, or={or_error:.4f}rad")
             self.fs = initial_state(imu_pos, or_quat_smoothed)
             self.history = deque()
-            return []
+            return [get_tip_pose(self.fs.state)[0]]
+            
         self.fs = fuse_camera(fs, imu_pos, or_quat_smoothed, camera_noise)
         previous = self.history.pop()  # Replace last item
         self.history.append(
@@ -157,14 +180,10 @@ class DpointFilter:
                 self.fs.statecov,
                 previous.predicted_state,
                 previous.predicted_statecov,
-                # accel=previous.accel,
-                # gyro=previous.gyro,
             )
         )
 
-        # Apply smoothing to the rest of the history.
-        # We could also smooth the future measurements, but that would be slower
-        # for very little benefit (the final estimate won't change).
+        # Apply smoothing
         smoothed_estimates = ekf_smooth(
             List(
                 [
@@ -183,10 +202,10 @@ class DpointFilter:
         # Replay the IMU measurements
         predicted_estimates = []
         for item in replay:
-            assert item.accel is not None
-            assert item.gyro is not None
-            self.update_imu(item.accel, item.gyro)
+            if item.accel is not None and item.gyro is not None:
+                self.update_imu(item.accel, item.gyro)
             predicted_estimates.append(self.fs.state)
+            
         return [
             get_tip_pose(state)[0] for state in smoothed_estimates + predicted_estimates
         ]
