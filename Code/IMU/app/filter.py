@@ -41,17 +41,17 @@ gyro_noise = 5e-4
 imu_noise = np.diag([accel_noise] * 3 + [gyro_noise] * 3)
 # >>> MODIFICATION: Adjust noise for CV-only mode <<<
 # We make camera noise very small so it dominates the state
-camera_noise_pos = 1e-9 
-camera_noise_or = 1e-7
+camera_noise_pos = 1e-5 # Trust measurements even less to favor EKF smoothing
+camera_noise_or = 1e-4
 camera_noise = np.diag([camera_noise_pos] * 3 + [camera_noise_or] * 4)
 
 # We make process noise larger so the filter is more responsive to camera updates
 additive_noise = np.zeros(STATE_SIZE)
-additive_noise[i_pos] = 1e-3
-additive_noise[i_vel] = 1e-2
-additive_noise[i_acc] = 100
-additive_noise[i_av] = 50
-additive_noise[i_quat] = 1e-3
+additive_noise[i_pos] = 1e-6 # Further reduced to trust model more/smooth more
+additive_noise[i_vel] = 1e-5 
+additive_noise[i_acc] = 1    
+additive_noise[i_av] = 1     
+additive_noise[i_quat] = 1e-6
 additive_noise[i_accbias] = 0.5e-4
 additive_noise[i_gyrobias] = 1e-5
 Q = np.diag(additive_noise)

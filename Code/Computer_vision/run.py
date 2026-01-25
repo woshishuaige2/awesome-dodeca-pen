@@ -167,7 +167,7 @@ def start(headless: bool = True, cam_index: int = 0, video_file: str = None) -> 
     ddc_text_data = dodecapen.txt_data()
     ddc_params    = dodecapen.parameters()
     tip_loc_cent  = np.array([0.15100563, 137.52252061, -82.07403558, 1]).reshape(4, 1)
-    post = 2
+    post = 1
 
     frames, dets = 0, 0
     t0 = time.time()

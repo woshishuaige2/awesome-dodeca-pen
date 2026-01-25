@@ -153,9 +153,3 @@ Inside Code folder:
     - ./Kalman has code to process raw IMU sensor data after applying kalman filter on it. It is working now.
 
 Run "pip3 install -r requirements.txt" 
-
-## Run Application
-Placeholder
-
-## Camera Calibration
-Placeholder 

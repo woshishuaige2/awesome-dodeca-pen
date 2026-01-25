@@ -13,6 +13,13 @@ def object_tracking(frame, params, text_data, post, show_markers=1):
 	# corners: N-length tuple of (1, 4, 2), ids: (N, 1)
 
 	corners, ids, _ = aruco.detectMarkers(frame_gray, params.aruco_dict, parameters=params.aruco_params)
+	
+	# Refine corners for better accuracy if markers are detected
+	if ids is not None and len(ids) > 0:
+		criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.001)
+		for i in range(len(corners)):
+			cv2.cornerSubPix(frame_gray, corners[i], (5, 5), (-1, -1), criteria)
+
 	visib_flag = 1
 
 	# if ids is not None:
@@ -99,6 +106,3 @@ def object_tracking(frame, params, text_data, post, show_markers=1):
 		visib_flag = 0
 
 	return final_pose
-
-
-
