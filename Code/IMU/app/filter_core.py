@@ -197,13 +197,15 @@ def imu_measurement(state: Mat):
 
 @njit(cache=True)
 def camera_measurement(state: Mat):
+    """
+    Decoupled camera measurement model.
+    Only uses position for the update to avoid orientation jitter propagation.
+    """
     pos = state[i_pos]
-    orientation = state[i_quat]
-    m_camera = np.concatenate((pos, orientation))
-    # m_camera = state[i_pos + i_quat]
-    mj_camera = np.zeros((7, len(state)))
+    m_camera = pos
+    
+    mj_camera = np.zeros((3, len(state)))
     mj_camera[0:3, i_pos] = np.eye(3)
-    mj_camera[3:7, i_quat] = np.eye(4)
     return (m_camera, mj_camera)
 
 
@@ -265,12 +267,25 @@ def fuse_imu(
 def fuse_camera(
     fs: FilterState,
     imu_pos: np.ndarray,
-    orientation_quat: np.ndarray,
+    orientation_quat: np.ndarray, # Kept in signature for compatibility, but unused for correction
     meas_noise: np.ndarray,
 ):
+    """
+    Fuses camera data using a decoupled approach.
+    Only the position (imu_pos) is used to update the state.
+    The orientation_quat is ignored in the correction step to prevent jitter propagation.
+    """
     h, H = camera_measurement(fs.state)
-    z = np.concatenate((imu_pos.flatten(), orientation_quat))  # actual measurement
-    state, statecov = ekf_correct(fs.state, fs.statecov, h, H, z, meas_noise)
+    z = imu_pos.flatten() # Only use position
+    
+    # Slice the noise matrix to match the 3D position measurement
+    # If meas_noise is 7x7, we take the top-left 3x3
+    if meas_noise.shape[0] == 7:
+        R = meas_noise[0:3, 0:3]
+    else:
+        R = meas_noise
+        
+    state, statecov = ekf_correct(fs.state, fs.statecov, h, H, z, R)
     state[i_quat] = repair_quaternion(state[i_quat])
     return FilterState(state, statecov)
 
