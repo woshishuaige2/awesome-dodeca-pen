@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 def plot():
-    csv_path = Path("outputs/trajectory.csv")
+    csv_path = Path("outputs/playback_trajectory.csv")
     if not csv_path.exists():
         print("No trajectory data found.")
         return

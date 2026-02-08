@@ -152,4 +152,4 @@ if __name__ == "__main__":
         "Decoupled EKF (Proposed)": df_dec
     }
     
-    visualize(results, "workflow_comparison.png")
+    visualize(results, "./outputs/workflow_comparison.png")

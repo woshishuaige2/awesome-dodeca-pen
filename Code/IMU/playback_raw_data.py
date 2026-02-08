@@ -94,7 +94,7 @@ def playback(input_file, output_csv="playback_trajectory.csv"):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Playback recorded raw sensor data through the EKF.")
     parser.add_argument("input", type=str, help="Input JSON file with raw sensor data")
-    parser.add_argument("--output", type=str, default="playback_trajectory.csv", help="Output CSV file path")
+    parser.add_argument("--output", type=str, default="outputs/playback_trajectory.csv", help="Output CSV file path")
     args = parser.parse_args()
 
     playback(args.input, args.output)
