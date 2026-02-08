@@ -44,19 +44,21 @@ def run_workflow(input_file, mode="decoupled"):
 
     # Mode-specific logic for EKF updates
     def custom_fuse_camera(fs, imu_pos, orientation_quat, meas_noise):
+        # Ensure we use the correct measurement vector for standard mode
+        # The issue was likely mismatch between h, H, and z dimensions
         if mode == "standard":
             # Standard 7D Update (Position + Orientation)
+            h_pos, H_pos = fc.camera_measurement(fs.state) # This is now 3D in filter_core.py
+            # Reconstruct 7D for standard mode
             h = np.concatenate((fs.state[fc.i_pos], fs.state[fc.i_quat]))
             H = np.zeros((7, fc.STATE_SIZE))
             H[0:3, fc.i_pos] = np.eye(3)
             H[3:7, fc.i_quat] = np.eye(4)
             z = np.concatenate((imu_pos.flatten(), orientation_quat))
-            R = meas_noise # 7x7
+            R = meas_noise if meas_noise.shape == (7, 7) else np.eye(7) * 1e-5
         else:
             # Decoupled 3D Update (Position Only)
-            h = fs.state[fc.i_pos]
-            H = np.zeros((3, fc.STATE_SIZE))
-            H[0:3, fc.i_pos] = np.eye(3)
+            h, H = fc.camera_measurement(fs.state)
             z = imu_pos.flatten()
             R = meas_noise[0:3, 0:3] if meas_noise.shape[0] == 7 else meas_noise
             
@@ -101,34 +103,54 @@ def run_workflow(input_file, mode="decoupled"):
     return pd.DataFrame(trajectory)
 
 def visualize(results_dict, output_path):
-    fig = plt.figure(figsize=(15, 10))
+    fig = plt.figure(figsize=(18, 12))
     
     # 3D Plot
     ax = fig.add_subplot(221, projection='3d')
     for name, df in results_dict.items():
-        ax.plot(df['x'], df['y'], df['z'], label=name, alpha=0.7)
+        if not df.empty:
+            ax.plot(df['x'], df['y'], df['z'], label=name, alpha=0.7)
     ax.set_title("3D Pen-Tip Trajectory")
+    ax.set_xlabel("X (m)")
+    ax.set_ylabel("Y (m)")
+    ax.set_zlabel("Z (m)")
     ax.legend()
 
     # XY Plane (Top view)
     ax2 = fig.add_subplot(222)
     for name, df in results_dict.items():
-        ax2.plot(df['x'], df['y'], label=name, alpha=0.7)
+        if not df.empty:
+            ax2.plot(df['x'], df['y'], label=name, alpha=0.7)
     ax2.set_title("XY Plane (Top View)")
     ax2.set_xlabel("X (m)")
     ax2.set_ylabel("Y (m)")
+    ax2.axis('equal') # Maintain aspect ratio for the rectangle
+    ax2.grid(True)
     ax2.legend()
 
-    # Z-axis stability over time
-    ax3 = fig.add_subplot(212)
+    # Z-axis over time (Absolute to see lifting)
+    ax3 = fig.add_subplot(223)
     for name, df in results_dict.items():
-        # Subtract mean to see jitter clearly
-        z_norm = df['z'] - df['z'].mean()
-        ax3.plot(df['t'] - df['t'].iloc[0], z_norm, label=name, alpha=0.8)
-    ax3.set_title("Z-Axis Jitter (Normalized)")
+        if not df.empty:
+            ax3.plot(df['t'] - df['t'].iloc[0], df['z'], label=name, alpha=0.8)
+    ax3.set_title("Z-Axis (Absolute Height)")
     ax3.set_xlabel("Time (s)")
-    ax3.set_ylabel("Z Displacement (m)")
+    ax3.set_ylabel("Z (m)")
+    ax3.grid(True)
     ax3.legend()
+
+    # Z-axis jitter (Normalized)
+    ax4 = fig.add_subplot(224)
+    for name, df in results_dict.items():
+        if not df.empty:
+            # Use rolling mean to see jitter relative to local trend
+            z_norm = df['z'] - df['z'].rolling(window=10, center=True).mean()
+            ax4.plot(df['t'] - df['t'].iloc[0], z_norm, label=name, alpha=0.8)
+    ax4.set_title("Z-Axis Jitter (High-pass filtered)")
+    ax4.set_xlabel("Time (s)")
+    ax4.set_ylabel("Z Noise (m)")
+    ax4.grid(True)
+    ax4.legend()
 
     plt.tight_layout()
     plt.savefig(output_path)
