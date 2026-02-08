@@ -8,6 +8,7 @@ import time
 from pathlib import Path
 
 import numpy as np
+import cv2
 
 # Add project directories to sys.path
 repo_root = Path(__file__).resolve().parents[1]
@@ -40,6 +41,7 @@ class RawDataRecorder:
 
     def record_imu(self, ble_queue):
         print("[Recorder] IMU recording started.")
+        imu_count = 0
         while not self.should_stop:
             try:
                 # Use a timeout so we can check should_stop
@@ -56,6 +58,9 @@ class RawDataRecorder:
                     }
                 reading_dict["local_timestamp"] = time.time()
                 self.data["imu_readings"].append(reading_dict)
+                imu_count += 1
+                if imu_count % 100 == 0:
+                    print(f"[Recorder] IMU: received {imu_count} samples")
             except mp.queues.Empty:
                 continue
             except Exception as e:
@@ -91,17 +96,51 @@ class RawDataRecorder:
         print(f"\n[Recorder] Data saved to {self.output_file}")
         print(f"[Recorder] Recorded {len(self.data['imu_readings'])} IMU and {len(self.data['cv_readings'])} CV samples.")
 
+def preview_status(should_stop_event=None):
+    """Monitor and display marker detection status (doesn't compete for camera)."""
+    print("[Preview] Marker detection status monitor started.")
+    last_status = None
+    
+    while True:
+        try:
+            vis = make_ekf_measurements(TIP_OFFSET_BODY, IMU_TO_TIP_BODY)
+            current_status = "DETECTED" if vis is not None else "NOT DETECTED"
+            
+            # Only print when status changes
+            if current_status != last_status:
+                timestamp = time.strftime("%H:%M:%S")
+                if vis is not None:
+                    print(f"[{timestamp}] Marker: {current_status} | Pos: ({vis['tip_pos_cam'][0]:.3f}, {vis['tip_pos_cam'][1]:.3f}, {vis['tip_pos_cam'][2]:.3f})")
+                else:
+                    print(f"[{timestamp}] Marker: {current_status}")
+                last_status = current_status
+        except Exception as e:
+            if "ERROR" not in str(last_status or ""):
+                print(f"[Preview] Detection check error: {type(e).__name__}: {str(e)[:80]}")
+                last_status = "ERROR"
+        
+        # Check if stop event was signaled
+        if should_stop_event and should_stop_event.is_set():
+            break
+        
+        time.sleep(0.5)  # Update status every 500ms
+    
+    print("[Preview] Status monitor stopped.")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Record raw IMU and CV data for Dodeca Pen project.")
-    parser.add_argument("--output", type=str, default="raw_sensor_data.json", help="Output JSON file path")
+    parser.add_argument("--output", type=str, default="outputs/my_data.json", help="Output JSON file path")
     parser.add_argument("--video", type=str, default=None, help="Video file to use instead of live camera")
     parser.add_argument("--duration", type=int, default=None, help="Duration to record in seconds")
+    parser.add_argument("--no-preview", action="store_true", help="Disable CV preview window")
     args = parser.parse_args()
 
     ble_queue = mp.Queue()
     ble_command_queue = mp.Queue()
     
     recorder = RawDataRecorder(args.output)
+    stop_event = threading.Event()
     
     # Start CV thread
     cv_thread = threading.Thread(
@@ -126,8 +165,21 @@ def main():
     imu_rec_thread.start()
     cv_rec_thread.start()
     
+    # Start preview thread if not disabled
+    preview_thread = None
+    if not args.no_preview:
+        preview_thread = threading.Thread(
+            target=preview_status, 
+            args=(stop_event,),
+            daemon=True
+        )
+        preview_thread.start()
+    
     print(f"\nRecording started. Output: {args.output}")
-    print("Press Ctrl+C to stop recording manually.")
+    if not args.no_preview:
+        print("Marker detection status will be displayed below. Press Ctrl+C to stop recording.")
+    else:
+        print("Press Ctrl+C to stop recording.")
     
     start_time = time.time()
     try:
@@ -142,11 +194,14 @@ def main():
     except KeyboardInterrupt:
         print("\nStopping recording...")
     finally:
+        stop_event.set()
         recorder.should_stop = True
         ble_command_queue.put(StopCommand())
         
         imu_rec_thread.join(timeout=1.0)
         cv_rec_thread.join(timeout=1.0)
+        if preview_thread and preview_thread.is_alive():
+            preview_thread.join(timeout=1.0)
         recorder.save()
         
         print("Exiting.")
