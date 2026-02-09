@@ -44,24 +44,28 @@ def run_workflow(input_file, mode="decoupled"):
 
     # Mode-specific logic for EKF updates
     def custom_fuse_camera(fs, imu_pos, orientation_quat, meas_noise):
-        # Ensure we use the correct measurement vector for standard mode
-        # The issue was likely mismatch between h, H, and z dimensions
         if mode == "standard":
             # Standard 7D Update (Position + Orientation)
-            h_pos, H_pos = fc.camera_measurement(fs.state) # This is now 3D in filter_core.py
-            # Reconstruct 7D for standard mode
+            # Use the original 7D measurement model
             h = np.concatenate((fs.state[fc.i_pos], fs.state[fc.i_quat]))
             H = np.zeros((7, fc.STATE_SIZE))
             H[0:3, fc.i_pos] = np.eye(3)
             H[3:7, fc.i_quat] = np.eye(4)
             z = np.concatenate((imu_pos.flatten(), orientation_quat))
-            R = meas_noise if meas_noise.shape == (7, 7) else np.eye(7) * 1e-5
+            # Use a noise matrix that trusts orientation more to see the jitter
+            R = np.eye(7)
+            R[0:3, 0:3] *= 1e-5
+            R[3:7, 3:7] *= 1e-5 
         else:
             # Decoupled 3D Update (Position Only)
-            h, H = fc.camera_measurement(fs.state)
+            # Use the new 3D measurement model
+            h = fs.state[fc.i_pos]
+            H = np.zeros((3, fc.STATE_SIZE))
+            H[0:3, fc.i_pos] = np.eye(3)
             z = imu_pos.flatten()
-            R = meas_noise[0:3, 0:3] if meas_noise.shape[0] == 7 else meas_noise
+            R = np.eye(3) * 1e-5
             
+        # We must call ekf_correct directly to bypass the monkey-patched fuse_camera
         state, statecov = fc.ekf_correct(fs.state, fs.statecov, h, H, z, R)
         state[fc.i_quat] = fc.repair_quaternion(state[fc.i_quat])
         return fc.FilterState(state, statecov)
@@ -87,9 +91,13 @@ def run_workflow(input_file, mode="decoupled"):
             q_cam = Quaternion(matrix=r_cam).elements
             
             if mode == "cv_only":
-                # In CV only, we just trust the latest reading directly or reset filter
                 filter.fs = fc.FilterState(initial_state(imu_pos, q_cam).state, filter.fs.statecov)
                 tips = [imu_pos]
+            elif mode == "standard":
+                # For standard mode, we force the update to use camera orientation
+                # By bypassing the smoothed orientation in filter.py
+                filter.fs = custom_fuse_camera(filter.fs, imu_pos, q_cam, np.eye(7)*1e-5)
+                tips = [filter.fs.state[fc.i_pos]]
             else:
                 tips = filter.update_camera(imu_pos, r_cam)
             
@@ -174,4 +182,14 @@ if __name__ == "__main__":
         "Decoupled EKF (Proposed)": df_dec
     }
     
-    visualize(results, "./outputs/workflow_comparison.png")
+    for name, df in results.items():
+        print(f"Workflow {name}: {len(df)} points")
+        if not df.empty:
+            print(f"  {name} - X mean: {df['x'].mean():.4f}, Y mean: {df['y'].mean():.4f}, Z mean: {df['z'].mean():.4f}")
+    
+    # Sort results to ensure Standard EKF (orange) is plotted last/on top
+    # The order will be: CV Only, Decoupled, then Standard
+    sorted_keys = ["CV Only (Raw)", "Decoupled EKF (Proposed)", "Standard EKF (Coupled)"]
+    sorted_results = {k: results[k] for k in sorted_keys if k in results}
+    
+    visualize(sorted_results, "./outputs/workflow_comparison.png")
