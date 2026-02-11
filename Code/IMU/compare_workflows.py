@@ -119,6 +119,8 @@ def visualize(results_dict, output_path):
         if not df.empty:
             ax.plot(df['x'], df['y'], df['z'], label=name, alpha=0.7)
     ax.set_title("3D Pen-Tip Trajectory")
+    # Set a better initial perspective (elevation, azimuth)
+    ax.view_init(elev=20, azim=45)
     ax.set_xlabel("X (m)")
     ax.set_ylabel("Y (m)")
     ax.set_zlabel("Z (m)")
@@ -187,9 +189,9 @@ if __name__ == "__main__":
         if not df.empty:
             print(f"  {name} - X mean: {df['x'].mean():.4f}, Y mean: {df['y'].mean():.4f}, Z mean: {df['z'].mean():.4f}")
     
-    # Sort results to ensure Standard EKF (orange) is plotted last/on top
-    # The order will be: CV Only, Decoupled, then Standard
-    sorted_keys = ["CV Only (Raw)", "Decoupled EKF (Proposed)", "Standard EKF (Coupled)"]
+    # Plot order: Standard EKF first, then Decoupled, then CV Only on top
+    # This ensures the raw data (benchmark) is always visible
+    sorted_keys = ["Standard EKF (Coupled)", "Decoupled EKF (Proposed)", "CV Only (Raw)"]
     sorted_results = {k: results[k] for k in sorted_keys if k in results}
     
     visualize(sorted_results, "./outputs/workflow_comparison.png")
