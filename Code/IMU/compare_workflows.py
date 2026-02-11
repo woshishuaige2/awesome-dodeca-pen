@@ -116,15 +116,30 @@ def visualize(results_dict, output_path):
     # 3D Plot
     ax = fig.add_subplot(221, projection='3d')
     # Use different zorder and alpha to ensure visibility
+    # We want CV Only to be visible but not overwhelming
     for i, (name, df) in enumerate(results_dict.items()):
         if not df.empty:
-            # CV Only (Raw) is plotted with lower alpha and thinner line to act as a background benchmark
-            alpha = 0.4 if "CV Only" in name else 0.8
-            linewidth = 0.8 if "CV Only" in name else 1.5
-            ax.plot(df['x'], df['y'], df['z'], label=name, alpha=alpha, linewidth=linewidth, zorder=i+1)
+            if "CV Only" in name:
+                alpha = 0.5
+                linewidth = 1.0
+                color = 'gray' # Use a distinct color for raw benchmark
+                zorder = 1
+            elif "Standard" in name:
+                alpha = 0.7
+                linewidth = 1.5
+                color = 'orange'
+                zorder = 2
+            else: # Decoupled
+                alpha = 0.9
+                linewidth = 2.0
+                color = 'green'
+                zorder = 3
+            
+            ax.plot(df['x'], df['y'], df['z'], label=name, alpha=alpha, linewidth=linewidth, color=color, zorder=zorder)
+            
     ax.set_title("3D Pen-Tip Trajectory")
     # Set a better initial perspective (elevation, azimuth)
-    ax.view_init(elev=20, azim=45)
+    ax.view_init(elev=30, azim=45)
     ax.set_xlabel("X (m)")
     ax.set_ylabel("Y (m)")
     ax.set_zlabel("Z (m)")
@@ -134,7 +149,12 @@ def visualize(results_dict, output_path):
     ax2 = fig.add_subplot(222)
     for name, df in results_dict.items():
         if not df.empty:
-            ax2.plot(df['x'], df['y'], label=name, alpha=0.7)
+            if "CV Only" in name:
+                ax2.plot(df['x'], df['y'], label=name, alpha=0.5, color='gray', linewidth=1.0, zorder=1)
+            elif "Standard" in name:
+                ax2.plot(df['x'], df['y'], label=name, alpha=0.7, color='orange', linewidth=1.5, zorder=2)
+            else:
+                ax2.plot(df['x'], df['y'], label=name, alpha=0.9, color='green', linewidth=2.0, zorder=3)
     ax2.set_title("XY Plane (Top View)")
     ax2.set_xlabel("X (m)")
     ax2.set_ylabel("Y (m)")
