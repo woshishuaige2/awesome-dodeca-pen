@@ -2,7 +2,24 @@
 
 ## Overview
 
-This guide explains the complete workflow for recording pen sketching data and analyzing it through different EKF strategies. The workflow now includes **integrated One-Euro filtering** during recording to produce clean, smooth CV trajectories.
+This guide explains the complete workflow for recording pen sketching data and analyzing it through different EKF strategies. The workflow includes **integrated One-Euro filtering** during recording to produce clean, smooth CV trajectories.
+
+---
+
+## Important: Coordinate System
+
+**What Computer Vision Detects:**
+- CV tracks ArUco markers on the dodecahedron and outputs the **DODECAHEDRON CENTER** position and orientation
+- The recorded data contains `center_pos_cam` which is this detected center position in the camera frame
+
+**Key Offsets (defined in body frame):**
+- `CENTER_TO_TIP_BODY` = [0, 137.5mm, -82.1mm] - offset from dodeca center to pen tip
+- `IMU_OFFSET_BODY` = [0, 0, 0] - offset from dodeca center to IMU (currently simplified as zero)
+
+**Current Simplification:**
+- We assume the IMU is located at the dodecahedron center (IMU_OFFSET_BODY = [0,0,0])
+- This means the filter tracks the dodeca center position, not the actual IMU or tip position
+- For accurate tip tracking, the workflow applies the CENTER_TO_TIP_BODY offset
 
 ---
 

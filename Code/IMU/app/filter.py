@@ -76,9 +76,10 @@ def get_tip_pose(state: Mat) -> Tuple[Mat, Mat]:
     Return the pen tip position and orientation from the filter state.
     
     Note: The filter tracks the position that the vision system provides as
-    'imu_pos_cam'. Due to IMU_TO_TIP_BODY = [0,0,0] in dodeca_bridge.py,
-    imu_pos_cam equals tip_pos_cam, so the filter state position IS the tip position.
-    No additional transformation is needed.
+    'center_pos_cam' (dodecahedron center detected by CV). Due to IMU_OFFSET_BODY = [0,0,0]
+    in dodeca_bridge.py, we currently assume the IMU is at the dodeca center, so the filter
+    state position tracks the dodeca center. To get actual tip position, you would need to
+    add CENTER_TO_TIP_BODY offset rotated by current orientation.
     """
     pos = state[i_pos]
     orientation = state[i_quat]

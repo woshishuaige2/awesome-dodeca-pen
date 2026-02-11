@@ -1,4 +1,32 @@
 # dodeca_bridge.py  — unified, guarded bridge for Dodecaball → IMU EKF
+#
+# COORDINATE SYSTEM DOCUMENTATION:
+# ================================
+# 
+# Body Frame: Fixed to the dodecahedron, origin at its geometric center
+#   - X, Y, Z axes aligned with dodecahedron geometry
+#   - Rotates with the pen as it moves
+#
+# Camera Frame: Fixed to the camera sensor
+#   - Z-axis points into the scene (depth)
+#   - X-axis points right, Y-axis points down (standard computer vision convention)
+#
+# Key Points in Body Frame:
+#   - DODECA CENTER: [0, 0, 0] (origin)
+#   - PEN TIP: CENTER_TO_TIP_BODY = [0, 137.5mm, -82.1mm]
+#   - IMU LOCATION: IMU_OFFSET_BODY = [0, 0, 0] (currently simplified as center)
+#
+# What Computer Vision Detects:
+#   - CV tracks ArUco markers on the dodecahedron surface
+#   - Output: position and orientation of DODECA CENTER in camera frame
+#   - The variable 'center_pos_cam' represents this detected center position
+#
+# Transformations:
+#   - center_pos_cam = what CV outputs directly (dodeca center in camera frame)
+#   - tip_pos_cam = center_pos_cam + R_cam @ CENTER_TO_TIP_BODY
+#   - imu_pos_cam = center_pos_cam + R_cam @ IMU_OFFSET_BODY
+#                 = center_pos_cam (since IMU_OFFSET_BODY = [0,0,0])
+#
 
 from pathlib import Path
 import sys
@@ -7,9 +35,10 @@ import numpy as np
 
 # --- Geometry configuration (kept local for simplicity) ---
 # Vector from Dodecaball CENTER → PEN TIP in the body frame (mm→m)
-TIP_OFFSET_BODY = np.array([0.0, 137.52252061, -82.07403558]) * 1e-3
-# Vector from IMU → PEN TIP in the same body frame (meters). Update if calibrated.
-IMU_TO_TIP_BODY = np.array([0.0, 0.0, 0.0])
+CENTER_TO_TIP_BODY = np.array([0.0, 137.52252061, -82.07403558]) * 1e-3
+# Vector from Dodecaball CENTER → IMU in the body frame (meters). 
+# Currently [0,0,0] assumes IMU is at dodeca center (simplification)
+IMU_OFFSET_BODY = np.array([0.0, 0.0, 0.0])
 
 # --- Make Computer_vision importable (once) ---
 repo_root = Path(__file__).resolve().parents[2]      # .../Code
@@ -52,15 +81,16 @@ def get_vision_reading():
     return t, R, time.time()
 
 # --- EKF measurement packaging ---
-def make_ekf_measurements(tip_offset_body: np.ndarray = TIP_OFFSET_BODY,
-                          imu_to_tip_body: np.ndarray = IMU_TO_TIP_BODY):
+def make_ekf_measurements(center_to_tip_body: np.ndarray = CENTER_TO_TIP_BODY,
+                          imu_offset_body: np.ndarray = IMU_OFFSET_BODY):
     """
-    Map camera pose (center) → EKF-friendly measurements.
+    Map camera pose (dodeca center) → EKF-friendly measurements.
+    CV tracks the dodecahedron CENTER via ArUco markers.
     Returns dict with:
-      - imu_pos_cam: (3,)
-      - tip_pos_cam: (3,)
-      - R_cam: (3,3)
-      - q_cam: (4,) [w,x,y,z]
+      - center_pos_cam: (3,) - dodecahedron center position in camera frame
+      - tip_pos_cam: (3,) - pen tip position in camera frame
+      - R_cam: (3,3) - rotation matrix
+      - q_cam: (4,) [w,x,y,z] - quaternion
       - timestamp: float
       - quality: float
     or None if no vision reading available.
@@ -69,16 +99,18 @@ def make_ekf_measurements(tip_offset_body: np.ndarray = TIP_OFFSET_BODY,
     if out is None:
         return None 
     t_cam, R_cam, ts = out
-    t_cam_m = t_cam * 0.001
+    # CV detects dodecahedron center position (in mm, convert to m)
+    center_pos_cam = t_cam * 0.001
 
-    # Offsets are defined in the body frame; transform to camera frame.
-    tip_pos_cam = t_cam_m + R_cam @ tip_offset_body
-    # IMU = tip - (IMU→tip)
-    imu_pos_cam = t_cam_m + R_cam @ (tip_offset_body - imu_to_tip_body)
+    # Transform offsets from body frame to camera frame
+    # Tip = Center + R × (Center→Tip offset)
+    tip_pos_cam = center_pos_cam + R_cam @ center_to_tip_body
+    # IMU = Center + R × (IMU offset from center)
+    # Since IMU_OFFSET_BODY = [0,0,0], this currently equals center_pos_cam
 
     q_cam = _rotmat_to_quat(R_cam)
     return {
-        "imu_pos_cam": imu_pos_cam,
+        "center_pos_cam": center_pos_cam,  # What CV actually detects
         "tip_pos_cam": tip_pos_cam,
         "R_cam": R_cam,
         "q_cam": q_cam,
@@ -104,8 +136,8 @@ def is_cv_shutdown_requested() -> bool:
 
 # Expose geometry constants if callers import them
 __all__ = [
-    "TIP_OFFSET_BODY",
-    "IMU_TO_TIP_BODY",
+    "CENTER_TO_TIP_BODY",
+    "IMU_OFFSET_BODY",
     "get_vision_reading",
     "make_ekf_measurements",
     "publish_pen_tip_positions",

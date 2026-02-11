@@ -28,6 +28,12 @@ def run_workflow(input_file, mode="decoupled"):
     
     imu_readings = data.get("imu_readings", [])
     cv_readings = data.get("cv_readings", [])
+    
+    # Backward compatibility: rename old field names to new ones
+    for cv_reading in cv_readings:
+        if "imu_pos_cam" in cv_reading and "center_pos_cam" not in cv_reading:
+            cv_reading["center_pos_cam"] = cv_reading["imu_pos_cam"]
+    
     all_events = []
     
     if mode != "cv_only":
@@ -68,20 +74,22 @@ def run_workflow(input_file, mode="decoupled"):
             sr = StylusReading.from_json(reading)
             filter.update_imu(sr.accel, sr.gyro)
         elif type == "CV":
-            imu_pos = np.array(reading["imu_pos_cam"])
+            # CV reading contains dodecahedron center position
+            center_pos = np.array(reading["center_pos_cam"])
             r_cam = np.array(reading["R_cam"])
             q_cam = Quaternion(matrix=r_cam).elements
             
             if mode == "cv_only":
-                filter.fs = fc.FilterState(initial_state(imu_pos, q_cam).state, filter.fs.statecov)
-                tips = [imu_pos]
+                # CV-only: just use the center position directly
+                filter.fs = fc.FilterState(initial_state(center_pos, q_cam).state, filter.fs.statecov)
+                tips = [center_pos]
             elif mode == "standard":
                 # Standard mode uses the custom 7D fuse
-                filter.fs = standard_fuse_camera(filter.fs, imu_pos, q_cam)
+                filter.fs = standard_fuse_camera(filter.fs, center_pos, q_cam)
                 tips = [filter.fs.state[fc.i_pos]]
             else:
                 # Decoupled mode uses update_camera
-                tips = filter.update_camera(imu_pos, r_cam)
+                tips = filter.update_camera(center_pos, r_cam)
             
             if tips:
                 t_val = tips[-1]

@@ -23,7 +23,7 @@ sys.path.append(str(repo_root / "Computer_vision" / "src"))
 
 # Try to import project modules
 try:
-    from app.dodeca_bridge import make_ekf_measurements, TIP_OFFSET_BODY, IMU_TO_TIP_BODY
+    from app.dodeca_bridge import make_ekf_measurements, CENTER_TO_TIP_BODY, IMU_OFFSET_BODY
     from app.monitor_ble import monitor_ble, StopCommand
     from filter import OneEuroFilter
     import run as cv_run
@@ -38,8 +38,8 @@ class FilteredDataRecorder:
         self.data = {
             "metadata": {
                 "start_time": time.time(),
-                "tip_offset_body": TIP_OFFSET_BODY.tolist(),
-                "imu_to_tip_body": IMU_TO_TIP_BODY.tolist(),
+                "center_to_tip_body": CENTER_TO_TIP_BODY.tolist(),
+                "imu_offset_body": IMU_OFFSET_BODY.tolist(),
                 "filtered": True,
                 "filter_type": "OneEuro"
             },
@@ -89,13 +89,13 @@ class FilteredDataRecorder:
         cv_count = 0
         while not self.should_stop:
             try:
-                vis = make_ekf_measurements(TIP_OFFSET_BODY, IMU_TO_TIP_BODY)
+                vis = make_ekf_measurements(CENTER_TO_TIP_BODY, IMU_OFFSET_BODY)
                 if vis is not None and vis["timestamp"] != last_ts:
                     last_ts = vis["timestamp"]
                     current_time = time.time()
                     
-                    # Extract raw data
-                    imu_pos = vis["imu_pos_cam"]
+                    # Extract raw data (CV detects dodecahedron center position)
+                    center_pos = vis["center_pos_cam"]
                     R_cam = vis["R_cam"]
                     
                     # Convert rotation matrix to quaternion
@@ -104,9 +104,9 @@ class FilteredDataRecorder:
                     
                     # Initialize filters on first reading
                     if not self.filters_initialized:
-                        self.filter_x = OneEuroFilter(current_time, imu_pos[0])
-                        self.filter_y = OneEuroFilter(current_time, imu_pos[1])
-                        self.filter_z = OneEuroFilter(current_time, imu_pos[2])
+                        self.filter_x = OneEuroFilter(current_time, center_pos[0])
+                        self.filter_y = OneEuroFilter(current_time, center_pos[1])
+                        self.filter_z = OneEuroFilter(current_time, center_pos[2])
                         self.filter_qw = OneEuroFilter(current_time, quat[0])
                         self.filter_qx = OneEuroFilter(current_time, quat[1])
                         self.filter_qy = OneEuroFilter(current_time, quat[2])
@@ -117,15 +117,15 @@ class FilteredDataRecorder:
                         cv_entry = {
                             "timestamp": vis["timestamp"],
                             "local_timestamp": current_time,
-                            "imu_pos_cam": imu_pos.tolist(),
-                            "tip_pos_cam": imu_pos.tolist(),
+                            "center_pos_cam": center_pos.tolist(),
+                            "tip_pos_cam": center_pos.tolist(),  # Will be calculated properly in workflow
                             "R_cam": R_cam.tolist(),
                         }
                     else:
                         # Apply One-Euro filter
-                        filtered_x = self.filter_x.filter_signal(current_time, imu_pos[0])
-                        filtered_y = self.filter_y.filter_signal(current_time, imu_pos[1])
-                        filtered_z = self.filter_z.filter_signal(current_time, imu_pos[2])
+                        filtered_x = self.filter_x.filter_signal(current_time, center_pos[0])
+                        filtered_y = self.filter_y.filter_signal(current_time, center_pos[1])
+                        filtered_z = self.filter_z.filter_signal(current_time, center_pos[2])
                         
                         filtered_qw = self.filter_qw.filter_signal(current_time, quat[0])
                         filtered_qx = self.filter_qx.filter_signal(current_time, quat[1])
@@ -147,8 +147,8 @@ class FilteredDataRecorder:
                         cv_entry = {
                             "timestamp": vis["timestamp"],
                             "local_timestamp": current_time,
-                            "imu_pos_cam": [filtered_x, filtered_y, filtered_z],
-                            "tip_pos_cam": [filtered_x, filtered_y, filtered_z],
+                            "center_pos_cam": [filtered_x, filtered_y, filtered_z],
+                            "tip_pos_cam": [filtered_x, filtered_y, filtered_z],  # Will be calculated in workflow
                             "R_cam": filtered_R.tolist(),
                         }
                     
@@ -179,7 +179,7 @@ def preview_status(should_stop_event=None):
     last_status = None
     while should_stop_event is None or not should_stop_event.is_set():
         try:
-            vis = make_ekf_measurements(TIP_OFFSET_BODY, IMU_TO_TIP_BODY)
+            vis = make_ekf_measurements(CENTER_TO_TIP_BODY, IMU_OFFSET_BODY)
             if vis is not None:
                 current_status = "DETECTED"
                 if current_status != last_status:

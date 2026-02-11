@@ -29,7 +29,7 @@ from app.color_button import ColorButton
 from app.filter import DpointFilter, blend_new_data
 from app.marker_tracker import CameraReading, run_tracker
 from app.monitor_ble import StopCommand, StylusReading, monitor_ble
-from app.dodeca_bridge import make_ekf_measurements, TIP_OFFSET_BODY, IMU_TO_TIP_BODY, publish_pen_tip_positions, is_cv_shutdown_requested
+from app.dodeca_bridge import make_ekf_measurements, CENTER_TO_TIP_BODY, IMU_OFFSET_BODY, publish_pen_tip_positions, is_cv_shutdown_requested
 from app import dodeca_bridge
 
 _CODE_DIR = Path(__file__).resolve().parents[2]
@@ -107,7 +107,7 @@ class QueueConsumer(QtCore.QObject):
                     # In offline mode, we want to process every frame, but in real-time we'd skip.
                     # However, make_ekf_measurements currently just reads the latest global state.
                     # We add a small check to avoid tight-looping if no new data is present.
-                    new_vis = make_ekf_measurements(TIP_OFFSET_BODY, IMU_TO_TIP_BODY)
+                    new_vis = make_ekf_measurements(CENTER_TO_TIP_BODY, IMU_OFFSET_BODY)
                     if new_vis is None: break
                     
                     # If this is the same timestamp as before, don't re-process
@@ -119,8 +119,10 @@ class QueueConsumer(QtCore.QObject):
                     break 
 
                 if vis is not None:
+                    # CV provides dodecahedron center position
+                    # Filter tracks this position and fuses it with IMU
                     smoothed_tip_pos = self._filter.update_camera(
-                        np.asarray(vis["imu_pos_cam"]).flatten(),
+                        np.asarray(vis["center_pos_cam"]).flatten(),
                         np.asarray(vis["R_cam"])
                     )
                     if smoothed_tip_pos:
