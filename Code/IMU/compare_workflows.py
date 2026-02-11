@@ -165,7 +165,7 @@ def visualize(results_dict, output_path):
     print(f"Comparison plot saved to {output_path}")
 
 if __name__ == "__main__":
-    data_file = "outputs/my_data.json"
+    data_file = "outputs/my_data.json"  # Input data file
     
     print("Running CV Only workflow...")
     df_cv = run_workflow(data_file, mode="cv_only")
