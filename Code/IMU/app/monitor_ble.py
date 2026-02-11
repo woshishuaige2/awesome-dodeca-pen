@@ -87,7 +87,7 @@ async def monitor_ble_async(data_queue: mp.Queue, command_queue: mp.Queue):
                 )
                 disconnected_task = asyncio.create_task(disconnected_event.wait())
                 await asyncio.wait(
-                    [disconnected_task, command], return_when=asyncio.FIRST_COMPLETED
+                    {disconnected_task, command}, return_when=asyncio.FIRST_COMPLETED
                 )
                 if command.done():
                     print("Quitting BLE process")

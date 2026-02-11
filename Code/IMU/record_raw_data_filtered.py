@@ -208,11 +208,27 @@ def main():
 
     recorder = FilteredDataRecorder(args.output)
     
+    # Start CV thread (Crucial for initializing camera and processing frames)
+    cv_process_thread = threading.Thread(
+        target=cv_run.main, 
+        kwargs={"headless": True, "cam_index": 0, "video_file": args.video}, 
+        daemon=True
+    )
+    cv_process_thread.start()
+    
+    print("[Main] Initializing CV system (waiting 2 seconds)...")
+    time.sleep(2)
+
     # Start BLE monitoring
     ble_queue = mp.Queue()
     ble_command_queue = mp.Queue()  # Command queue for stopping BLE
-    ble_process = mp.Process(target=monitor_ble, args=(ble_queue, ble_command_queue))
-    ble_process.start()
+    # Using a Thread for BLE instead of a Process can be more stable on some systems
+    ble_thread = threading.Thread(
+        target=monitor_ble, 
+        args=(ble_queue, ble_command_queue),
+        daemon=True
+    )
+    ble_thread.start()
 
     # Start preview in separate thread
     stop_preview = threading.Event()
@@ -221,28 +237,29 @@ def main():
     preview_thread.start()
 
     # Start recording threads
-    imu_thread = threading.Thread(target=recorder.record_imu, args=(ble_queue,))
-    cv_thread = threading.Thread(target=recorder.record_cv)
+    imu_rec_thread = threading.Thread(target=recorder.record_imu, args=(ble_queue,))
+    cv_rec_thread = threading.Thread(target=recorder.record_cv)
     
-    imu_thread.start()
-    cv_thread.start()
+    imu_rec_thread.start()
+    cv_rec_thread.start()
 
     print("\n=== Recording Started ===")
     print("Press Ctrl+C to stop recording\n")
 
     try:
-        imu_thread.join()
-        cv_thread.join()
+        # Keep main thread alive until user interrupts
+        while True:
+            time.sleep(0.5)
     except KeyboardInterrupt:
         print("\n[Main] Stopping...")
         recorder.should_stop = True
         stop_preview.set()
     finally:
-        # Send stop command to BLE process
+        # Send stop command to BLE thread
         ble_command_queue.put(StopCommand())
-        ble_process.join(timeout=2)
-        if ble_process.is_alive():
-            ble_process.terminate()
+        
+        imu_rec_thread.join(timeout=1.0)
+        cv_rec_thread.join(timeout=1.0)
         recorder.save()
 
 if __name__ == "__main__":
