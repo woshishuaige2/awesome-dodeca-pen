@@ -63,7 +63,8 @@ def run_workflow(input_file, mode="decoupled"):
             H = np.zeros((3, fc.STATE_SIZE))
             H[0:3, fc.i_pos] = np.eye(3)
             z = imu_pos.flatten()
-            R = np.eye(3) * 1e-5
+            # Trust the model (IMU) more to show smoothing effect
+            R = np.eye(3) * 1e-3
             
         # We must call ekf_correct directly to bypass the monkey-patched fuse_camera
         state, statecov = fc.ekf_correct(fs.state, fs.statecov, h, H, z, R)
@@ -120,22 +121,25 @@ def visualize(results_dict, output_path):
     for i, (name, df) in enumerate(results_dict.items()):
         if not df.empty:
             if "CV Only" in name:
-                alpha = 0.5
+                alpha = 0.6
                 linewidth = 1.0
-                color = 'gray' # Use a distinct color for raw benchmark
+                color = 'gray'
+                linestyle = '--' # Use dashed line for raw benchmark to distinguish from overlap
                 zorder = 1
             elif "Standard" in name:
                 alpha = 0.7
                 linewidth = 1.5
                 color = 'orange'
+                linestyle = '-'
                 zorder = 2
             else: # Decoupled
                 alpha = 0.9
                 linewidth = 2.0
                 color = 'green'
+                linestyle = '-'
                 zorder = 3
             
-            ax.plot(df['x'], df['y'], df['z'], label=name, alpha=alpha, linewidth=linewidth, color=color, zorder=zorder)
+            ax.plot(df['x'], df['y'], df['z'], label=name, alpha=alpha, linewidth=linewidth, color=color, linestyle=linestyle, zorder=zorder)
             
     ax.set_title("3D Pen-Tip Trajectory")
     # Set a better initial perspective (elevation, azimuth)
@@ -150,7 +154,7 @@ def visualize(results_dict, output_path):
     for name, df in results_dict.items():
         if not df.empty:
             if "CV Only" in name:
-                ax2.plot(df['x'], df['y'], label=name, alpha=0.5, color='gray', linewidth=1.0, zorder=1)
+                ax2.plot(df['x'], df['y'], label=name, alpha=0.6, color='gray', linewidth=1.0, linestyle='--', zorder=1)
             elif "Standard" in name:
                 ax2.plot(df['x'], df['y'], label=name, alpha=0.7, color='orange', linewidth=1.5, zorder=2)
             else:
