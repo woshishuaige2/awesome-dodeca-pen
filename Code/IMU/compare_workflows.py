@@ -115,9 +115,13 @@ def visualize(results_dict, output_path):
     
     # 3D Plot
     ax = fig.add_subplot(221, projection='3d')
-    for name, df in results_dict.items():
+    # Use different zorder and alpha to ensure visibility
+    for i, (name, df) in enumerate(results_dict.items()):
         if not df.empty:
-            ax.plot(df['x'], df['y'], df['z'], label=name, alpha=0.7)
+            # CV Only (Raw) is plotted with lower alpha and thinner line to act as a background benchmark
+            alpha = 0.4 if "CV Only" in name else 0.8
+            linewidth = 0.8 if "CV Only" in name else 1.5
+            ax.plot(df['x'], df['y'], df['z'], label=name, alpha=alpha, linewidth=linewidth, zorder=i+1)
     ax.set_title("3D Pen-Tip Trajectory")
     # Set a better initial perspective (elevation, azimuth)
     ax.view_init(elev=20, azim=45)
@@ -189,9 +193,12 @@ if __name__ == "__main__":
         if not df.empty:
             print(f"  {name} - X mean: {df['x'].mean():.4f}, Y mean: {df['y'].mean():.4f}, Z mean: {df['z'].mean():.4f}")
     
-    # Plot order: Standard EKF first, then Decoupled, then CV Only on top
-    # This ensures the raw data (benchmark) is always visible
-    sorted_keys = ["Standard EKF (Coupled)", "Decoupled EKF (Proposed)", "CV Only (Raw)"]
-    sorted_results = {k: results[k] for k in sorted_keys if k in results}
+    # Plot order: CV Only (Raw) first, then Standard EKF, then Decoupled on top
+    # This ensures the EKF results are clearly visible over the noisy raw data
+    plot_order = ["CV Only (Raw)", "Standard EKF (Coupled)", "Decoupled EKF (Proposed)"]
+    sorted_results = {}
+    for k in plot_order:
+        if k in results:
+            sorted_results[k] = results[k]
     
     visualize(sorted_results, "./outputs/workflow_comparison.png")
