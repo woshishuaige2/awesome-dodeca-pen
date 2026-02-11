@@ -210,8 +210,8 @@ def main():
     
     # Start BLE monitoring
     ble_queue = mp.Queue()
-    stop_cmd = StopCommand()
-    ble_process = mp.Process(target=monitor_ble, args=(ble_queue, stop_cmd))
+    ble_command_queue = mp.Queue()  # Command queue for stopping BLE
+    ble_process = mp.Process(target=monitor_ble, args=(ble_queue, ble_command_queue))
     ble_process.start()
 
     # Start preview in separate thread
@@ -238,7 +238,8 @@ def main():
         recorder.should_stop = True
         stop_preview.set()
     finally:
-        stop_cmd.stop()
+        # Send stop command to BLE process
+        ble_command_queue.put(StopCommand())
         ble_process.join(timeout=2)
         if ble_process.is_alive():
             ble_process.terminate()
