@@ -277,8 +277,7 @@ def fuse_camera(
     """
     h, H = camera_measurement(fs.state)
     z = imu_pos.flatten() # Only use position
-    
-    # Slice the noise matrix to match the 3D position measurement
+       # Slicing the noise matrix to match the 3D position measurement
     # If meas_noise is 7x7, we take the top-left 3x3
     if meas_noise.shape[0] == 7:
         R = meas_noise[0:3, 0:3]
