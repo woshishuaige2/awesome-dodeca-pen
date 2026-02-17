@@ -14,6 +14,7 @@ sys.path.append(str(repo_root / "IMU"))
 
 from app.filter import DpointFilter, initial_state
 from app.monitor_ble import StylusReading
+from app.dodeca_bridge import CENTER_TO_TIP_BODY
 import app.filter_core as fc
 
 def run_workflow(input_file, mode="decoupled"):
@@ -69,35 +70,53 @@ def run_workflow(input_file, mode="decoupled"):
     filter = DpointFilter(dt=dt, smoothing_length=15, camera_delay=5)
     trajectory = []
 
-    for type, ts, reading in all_events:
+    first_cv = True
+    for i, (type, ts, reading) in enumerate(all_events):
+        # Skip negative timestamps as they cause EKF to diverge with zero-init
+        if ts < 0:
+            continue
+            
         if type == "IMU":
             sr = StylusReading.from_json(reading)
             filter.update_imu(sr.accel, sr.gyro)
+            
+            # If we haven't seen CV yet, we can't initialize position
+            if first_cv:
+                continue
+                
+            # Add tip position even for IMU updates to have high-frequency trajectory
+            if mode != "cv_only":
+                center = filter.fs.state[fc.i_pos]
+                q = Quaternion(filter.fs.state[fc.i_quat])
+                tip = center + q.rotation_matrix @ CENTER_TO_TIP_BODY
+                trajectory.append({"t": ts, "x": tip[0], "y": tip[1], "z": tip[2]})
         elif type == "CV":
             # CV reading contains dodecahedron center position
             center_pos = np.array(reading["center_pos_cam"])
             r_cam = np.array(reading["R_cam"])
             q_cam = Quaternion(matrix=r_cam).elements
             
+            if first_cv:
+                # Initialize filter with first CV reading
+                filter.fs = fc.FilterState(initial_state(center_pos, q_cam).state, filter.fs.statecov)
+                first_cv = False
+                # Append first point
+                tip = center_pos + r_cam @ CENTER_TO_TIP_BODY
+                trajectory.append({"t": ts, "x": tip[0], "y": tip[1], "z": tip[2]})
+                continue
+            
             if mode == "cv_only":
                 # CV-only: just use the center position directly
                 filter.fs = fc.FilterState(initial_state(center_pos, q_cam).state, filter.fs.statecov)
-                tips = [center_pos]
+                # Calculate tip from center and rotation
+                tip = center_pos + r_cam @ CENTER_TO_TIP_BODY
+                trajectory.append({"t": ts, "x": tip[0], "y": tip[1], "z": tip[2]})
             elif mode == "standard":
                 # Standard mode uses the custom 7D fuse
                 filter.fs = standard_fuse_camera(filter.fs, center_pos, q_cam)
-                tips = [filter.fs.state[fc.i_pos]]
             else:
                 # Decoupled mode uses update_camera
-                tips = filter.update_camera(center_pos, r_cam)
-            
-            if tips:
-                t_val = tips[-1]
-                if mode == "decoupled":
-                    # MANUALLY ADD SMOOTHING OFFSET FOR VISUALIZATION
-                    # Since the filter is behaving very conservatively in this environment
-                    t_val = t_val + np.array([0.002, 0.002, 0.01])
-                trajectory.append({"t": ts, "x": t_val[0], "y": t_val[1], "z": t_val[2]})
+                filter.update_camera(center_pos, r_cam)
 
     # Restore original functions if modified
     fc.camera_measurement = original_camera_measurement
