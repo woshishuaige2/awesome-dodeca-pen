@@ -57,7 +57,8 @@ def run_workflow(input_file, mode="decoupled"):
         H[0:3, fc.i_pos] = np.eye(3)
         H[3:7, fc.i_quat] = np.eye(4)
         z = np.concatenate((imu_pos.flatten(), orientation_quat))
-        R = np.eye(7) * 1e-5
+        # Use extremely small noise to follow CV exactly
+        R = np.diag([1e-9, 1e-9, 1e-9, 1e-5, 1e-5, 1e-5, 1e-5])
         state, statecov = fc.ekf_correct(fs.state, fs.statecov, h, H, z, R)
         state[fc.i_quat] = fc.repair_quaternion(state[fc.i_quat])
         return fc.FilterState(state, statecov)

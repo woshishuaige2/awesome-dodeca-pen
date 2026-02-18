@@ -256,8 +256,19 @@ def fuse_imu(
     fs: FilterState, accel: np.ndarray, gyro: np.ndarray, meas_noise: np.ndarray
 ):
     h, H = imu_measurement(fs.state)
-    accel2 = np.array([-accel[2], accel[0], accel[1]])
-    gyro2 = np.array([gyro[2], -gyro[0], -gyro[1]])
+    # Correct mapping for Dodeca-pen to Camera Frame:
+    # Camera: X right, Y down, Z forward
+    # Pen: X forward, Y right, Z up
+    # To match Camera Frame:
+    # Correct mapping for Dodeca-pen to Camera Frame:
+    # Camera Frame: X+ right, Y+ down, Z+ forward
+    # Pen Frame: X+ forward, Y+ right, Z+ up
+    # Correct mapping:
+    # Pen Y+ -> Camera X+
+    # Pen Z+ -> Camera Y- (so Pen Z- is Camera Y+)
+    # Pen X+ -> Camera Z+
+    accel2 = np.array([accel[1], -accel[2], accel[0]])
+    gyro2 = np.array([gyro[1], -gyro[2], gyro[0]])
     z = np.concatenate((accel2, gyro2))  # actual measurement
     state, statecov = ekf_correct(fs.state, fs.statecov, h, H, z, meas_noise)
     state[i_quat] = repair_quaternion(state[i_quat])

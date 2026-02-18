@@ -39,21 +39,23 @@ Q = np.diag(additive_noise)
 accel_noise = 2e-3
 gyro_noise = 5e-4
 imu_noise = np.diag([accel_noise] * 3 + [gyro_noise] * 3)
-# >>> MODIFICATION: Adjust noise for CV-only mode <<<
-# We make camera noise very small so it dominates the state
-camera_noise_pos = 1e2 # EXTREMELY LARGE
-camera_noise_or = 1e-4
+# >>> MODIFICATION: Optimized noise for EKF performance <<<
+# We make camera noise small so the filter trusts the high-quality offline CV
+camera_noise_pos = 1e-6 # High trust in CV position
+camera_noise_or = 1e-6  # High trust in orientation
 camera_noise = np.diag([camera_noise_pos] * 3 + [camera_noise_or] * 4)
 
-# We make process noise larger so the filter is more responsive to camera updates
+# We make process noise larger to allow the filter to follow motion accurately
 additive_noise = np.zeros(STATE_SIZE)
-additive_noise[i_pos] = 1e-12 
-additive_noise[i_vel] = 1e-12 
-additive_noise[i_acc] = 1e-12    
-additive_noise[i_av] = 1e-12     
-additive_noise[i_quat] = 1e-12
-additive_noise[i_accbias] = 0.5e-4
-additive_noise[i_gyrobias] = 1e-5
+# Position/Velocity noise allows following the camera tightly
+additive_noise[i_pos] = 1e-3 
+additive_noise[i_vel] = 1e-3 
+# Accel/AV noise allows the IMU to fill gaps between CV frames smoothly
+additive_noise[i_acc] = 10.0    
+additive_noise[i_av] = 1.0     
+additive_noise[i_quat] = 1e-6
+additive_noise[i_accbias] = 1e-5
+additive_noise[i_gyrobias] = 1e-6
 Q = np.diag(additive_noise)
 
 
