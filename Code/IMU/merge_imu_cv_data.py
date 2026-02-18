@@ -75,14 +75,16 @@ def find_sync_point(imu_data, cv_data, method="first_detection"):
         
         # Check if IMU and CV were recorded simultaneously
         if abs(time_diff) > 10.0:
-            print(f"\n  [ERROR] Large time gap detected ({abs(time_diff):.1f}s)!")
-            print(f"  This suggests IMU and CV were NOT recorded simultaneously.")
-            print(f"  The EKF requires synchronized IMU+CV data from the SAME motion.")
-            print(f"\n  Please re-record using:")
-            print(f"    python record_raw_data_filtered.py")
-            print(f"  This will capture both IMU and video during the same sketch.\n")
+            print(f"\n  [WARNING] Large time gap detected ({abs(time_diff):.1f}s)!")
+            print(f"  This suggests the recordings might not be perfectly synchronized.")
+            print(f"  We will use the first CV detection as the absolute t=0 and shift IMU accordingly.")
+            
+            # If the gap is huge (likely different sessions), we force the IMU to start at t=0 too
+            if abs(time_diff) > 3600: # 1 hour
+                print(f"  [CRITICAL] Gap > 1 hour. Forcing IMU to start at t=0 as well.")
+                return imu_start, cv_start
         
-        # Return the same sync point for both streams
+        # Return the same sync point for both streams to maintain relative timing
         return sync_point, sync_point
     
     else:

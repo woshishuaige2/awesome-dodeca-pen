@@ -28,12 +28,13 @@ except ImportError as e:
     sys.exit(1)
 
 class RawDataRecorder:
-    def __init__(self, imu_output="outputs/imu_data.json", video_output="outputs/video.mp4"):
+    def __init__(self, imu_output="outputs/imu_data.json", video_output="outputs/video.mp4", start_time=None):
         self.imu_output = imu_output
         self.video_output = video_output
+        self.start_time = start_time if start_time else time.time()
         self.data = {
             "metadata": {
-                "start_time": time.time(),
+                "start_time": self.start_time,
                 "filtered": False,
                 "note": "Raw IMU and Video recording for offline processing"
             },
@@ -103,7 +104,9 @@ def main():
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     video_out = cv2.VideoWriter(args.video, fourcc, fps, (width, height))
 
-    recorder = RawDataRecorder(args.imu, args.video)
+    # CRITICAL: Record the exact start time for both IMU and Video
+    start_time = time.time()
+    recorder = RawDataRecorder(args.imu, args.video, start_time=start_time)
     
     # Start BLE monitoring
     ble_queue = mp.Queue()
