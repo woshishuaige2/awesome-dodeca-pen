@@ -64,16 +64,25 @@ def find_sync_point(imu_data, cv_data, method="first_detection"):
         # However, for simplicity and since they are recorded on the same machine,
         # we can just use the absolute difference if they share the same clock.
         
-        # If the timestamps are very far apart (e.g. > 1000s), they likely use different clocks
-        # or one was recorded much later.
-        if abs(cv_start - imu_start) > 100:
-            print(f"  [Warning] Large time difference ({abs(cv_start - imu_start):.1f}s).")
-            print(f"  [Sync] Treating first readings as simultaneous.")
-            return imu_start, cv_start
-        
-        # Otherwise, assume they share the same clock
+        # ALWAYS use CV start as the reference point (t=0)
+        # This ensures that the first CV detection is at exactly t=0
+        # and IMU data is aligned relative to that point
         sync_point = cv_start
-        print(f"  [Sync] Using shared clock. Sync point: {sync_point:.3f}")
+        time_diff = cv_start - imu_start
+        
+        print(f"  [Sync] Using CV start as t=0 reference: {sync_point:.3f}")
+        print(f"  [Sync] Time difference: {time_diff:.3f}s")
+        
+        # Check if IMU and CV were recorded simultaneously
+        if abs(time_diff) > 10.0:
+            print(f"\n  [ERROR] Large time gap detected ({abs(time_diff):.1f}s)!")
+            print(f"  This suggests IMU and CV were NOT recorded simultaneously.")
+            print(f"  The EKF requires synchronized IMU+CV data from the SAME motion.")
+            print(f"\n  Please re-record using:")
+            print(f"    python record_raw_data_filtered.py")
+            print(f"  This will capture both IMU and video during the same sketch.\n")
+        
+        # Return the same sync point for both streams
         return sync_point, sync_point
     
     else:
