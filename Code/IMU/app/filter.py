@@ -41,21 +41,19 @@ gyro_noise = 5e-4
 imu_noise = np.diag([accel_noise] * 3 + [gyro_noise] * 3)
 # >>> MODIFICATION: Optimized noise for EKF performance <<<
 # We make camera noise small so the filter trusts the high-quality offline CV
-camera_noise_pos = 1e-6 # High trust in CV position
-camera_noise_or = 1e-6  # High trust in orientation
+camera_noise_pos = 1e-5 # Higher trust in CV
+camera_noise_or = 1e-5  
 camera_noise = np.diag([camera_noise_pos] * 3 + [camera_noise_or] * 4)
 
-# We make process noise larger to allow the filter to follow motion accurately
+# Balanced process noise
 additive_noise = np.zeros(STATE_SIZE)
-# Position/Velocity noise allows following the camera tightly
-additive_noise[i_pos] = 1e-3 
+additive_noise[i_pos] = 1e-4
 additive_noise[i_vel] = 1e-3 
-# Accel/AV noise allows the IMU to fill gaps between CV frames smoothly
-additive_noise[i_acc] = 10.0    
+additive_noise[i_acc] = 1.0    
 additive_noise[i_av] = 1.0     
-additive_noise[i_quat] = 1e-6
-additive_noise[i_accbias] = 1e-5
-additive_noise[i_gyrobias] = 1e-6
+additive_noise[i_quat] = 1e-5
+additive_noise[i_accbias] = 1e-6
+additive_noise[i_gyrobias] = 1e-7
 Q = np.diag(additive_noise)
 
 
@@ -66,7 +64,8 @@ def initial_state(position=None, orientation=None):
         state[i_pos] = position.flatten()
     if orientation is not None:
         state[i_quat] = orientation.flatten()
-    covdiag = np.ones(STATE_SIZE, dtype=np.float64) * 0.0001
+    covdiag = np.ones(STATE_SIZE, dtype=np.float64) * 0.01
+    covdiag[i_quat] = 1.0 # High initial uncertainty in orientation
     covdiag[i_accbias] = 1e-2
     covdiag[i_gyrobias] = 1e-4
     statecov = np.diag(covdiag)

@@ -18,7 +18,7 @@ i_accbias = np.array([16, 17, 18])
 i_gyrobias = np.array([19, 20, 21])
 
 STATE_SIZE = 22
-GRAVITY_VECTOR = np.array([0, 0, -9.81])
+GRAVITY_VECTOR = np.array([0, 9.81, 0]) # Camera Frame: Y+ is down, so gravity is [0, 9.81, 0]
 
 
 class FilterState(NamedTuple):

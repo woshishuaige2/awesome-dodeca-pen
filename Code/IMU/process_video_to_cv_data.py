@@ -214,7 +214,7 @@ class OfflineCVProcessor:
         finally:
             cap.release()
         
-        processing_time = time.time() - start_time
+        processing_time = time.time() - start_time_proc
         
         print(f"\n[CV Processor] Processing complete:")
         print(f"  Total frames processed: {frame_count}")

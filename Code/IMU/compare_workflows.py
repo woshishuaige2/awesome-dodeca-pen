@@ -12,7 +12,7 @@ from pyquaternion import Quaternion
 repo_root = Path(__file__).resolve().parents[1]
 sys.path.append(str(repo_root / "IMU"))
 
-from app.filter import DpointFilter, initial_state
+from app.filter import DpointFilter, initial_state, Q, imu_noise
 from app.monitor_ble import StylusReading
 from app.dodeca_bridge import CENTER_TO_TIP_BODY
 import app.filter_core as fc
@@ -57,8 +57,8 @@ def run_workflow(input_file, mode="decoupled"):
         H[0:3, fc.i_pos] = np.eye(3)
         H[3:7, fc.i_quat] = np.eye(4)
         z = np.concatenate((imu_pos.flatten(), orientation_quat))
-        # Use extremely small noise to follow CV exactly
-        R = np.diag([1e-9, 1e-9, 1e-9, 1e-5, 1e-5, 1e-5, 1e-5])
+        # Use small noise to follow CV
+        R = np.diag([1e-5, 1e-5, 1e-5, 1e-4, 1e-4, 1e-4, 1e-4])
         state, statecov = fc.ekf_correct(fs.state, fs.statecov, h, H, z, R)
         state[fc.i_quat] = fc.repair_quaternion(state[fc.i_quat])
         return fc.FilterState(state, statecov)
@@ -79,7 +79,23 @@ def run_workflow(input_file, mode="decoupled"):
             
         if type == "IMU":
             sr = StylusReading.from_json(reading)
-            filter.update_imu(sr.accel, sr.gyro)
+            # Correct mapping for Dodeca-pen to Camera Frame:
+            # Pen Y+ -> Camera X+
+            # Pen Z+ -> Camera Y-
+            # Pen X+ -> Camera Z+
+            accel2 = np.array([sr.accel[1], -sr.accel[2], sr.accel[0]])
+            gyro2 = np.array([sr.gyro[1], -sr.gyro[2], sr.gyro[0]])
+            
+            # Use Standard EKF update if in standard mode
+            if mode == "standard":
+                predicted = fc.ekf_predict(filter.fs, filter.dt, Q)
+                h, H = fc.imu_measurement(predicted.state)
+                z = np.concatenate((accel2, gyro2))
+                state, statecov = fc.ekf_correct(predicted.state, predicted.statecov, h, H, z, imu_noise)
+                state[fc.i_quat] = fc.repair_quaternion(state[fc.i_quat])
+                filter.fs = fc.FilterState(state, statecov)
+            else:
+                filter.update_imu(sr.accel, sr.gyro)
             
             # If we haven't seen CV yet, we can't initialize position
             if first_cv:
