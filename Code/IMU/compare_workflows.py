@@ -73,10 +73,6 @@ def run_workflow(input_file, mode="decoupled"):
 
     first_cv = True
     for i, (type, ts, reading) in enumerate(all_events):
-        # Skip negative timestamps as they cause EKF to diverge with zero-init
-        if ts < 0:
-            continue
-            
         if type == "IMU":
             sr = StylusReading.from_json(reading)
             filter.update_imu(sr.accel, sr.gyro)
@@ -115,9 +111,19 @@ def run_workflow(input_file, mode="decoupled"):
             elif mode == "standard":
                 # Standard mode uses the custom 7D fuse
                 filter.fs = standard_fuse_camera(filter.fs, center_pos, q_cam)
+                # Add trajectory point after fusion
+                center = filter.fs.state[fc.i_pos]
+                q = Quaternion(filter.fs.state[fc.i_quat])
+                tip = center + q.rotation_matrix @ CENTER_TO_TIP_BODY
+                trajectory.append({"t": ts, "x": tip[0], "y": tip[1], "z": tip[2]})
             else:
                 # Decoupled mode uses update_camera
                 filter.update_camera(center_pos, r_cam)
+                # Add trajectory point after update
+                center = filter.fs.state[fc.i_pos]
+                q = Quaternion(filter.fs.state[fc.i_quat])
+                tip = center + q.rotation_matrix @ CENTER_TO_TIP_BODY
+                trajectory.append({"t": ts, "x": tip[0], "y": tip[1], "z": tip[2]})
 
     # Restore original functions if modified
     fc.camera_measurement = original_camera_measurement
@@ -138,9 +144,9 @@ def visualize(results_dict, output_path):
 
     # Define plotting styles for each workflow
     plot_styles = {
-        "CV Only (Raw)": {"alpha": 0.6, "linewidth": 1.0, "color": 'gray', "linestyle": '--', "zorder": 1},
-        "Standard EKF (Coupled)": {"alpha": 0.7, "linewidth": 1.5, "color": 'orange', "linestyle": '-', "zorder": 2},
-        "Decoupled EKF (Proposed)": {"alpha": 0.9, "linewidth": 2.0, "color": 'green', "linestyle": '-', "zorder": 3}
+        "CV Only (Raw)": {"alpha": 0.8, "linewidth": 2.0, "color": 'blue', "linestyle": ':', "zorder": 1},
+        "Standard EKF (Coupled)": {"alpha": 0.8, "linewidth": 2.0, "color": 'orange', "linestyle": '-', "zorder": 2},
+        "Decoupled EKF (Proposed)": {"alpha": 0.9, "linewidth": 2.5, "color": 'green', "linestyle": '-', "zorder": 3}
     }
 
     # Plot order: CV Only (Raw) first, then Standard EKF, then Decoupled on top
