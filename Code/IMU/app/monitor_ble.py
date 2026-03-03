@@ -11,7 +11,7 @@ import numpy as np
 class StylusReading(NamedTuple):
     accel: np.ndarray
     gyro: np.ndarray
-    t: int
+    t: int  # Sensor timestamp in ms
     pressure: float
 
     def format_aligned(self):
@@ -52,10 +52,21 @@ def calc_gyro(g):
 
 def unpack_imu_data_packet(data: bytearray):
     """Unpacks an IMUDataPacket struct from the given data buffer."""
-    ax, ay, az, gx, gy, gz, pressure = struct.unpack("<3h3hH", data)
+    # Matches Arduino struct: int16_t accel[3], gyro[3], uint16_t pressure, uint32_t timestamp
+    ax, ay, az, gx, gy, gz, pressure, t_sensor = struct.unpack("<3h3hHI", data)
     accel = calc_accel(np.array([ax, ay, az], dtype=np.float64) * 9.8)
     gyro = calc_gyro(np.array([gx, gy, gz], dtype=np.float64) * np.pi / 180.0)
-    return StylusReading(accel, gyro, 0, pressure / 2**16)
+    return StylusReading(accel, gyro, t_sensor, pressure / 2**16)
+
+
+# Global synchronization variables
+sync_offset = None  # t_sensor - t_system (in seconds)
+sync_lock = mp.Lock()
+
+
+def get_sync_offset():
+    global sync_offset
+    return sync_offset
 
 
 characteristic = "19B10013-E8F2-537E-4F6C-D104768A1214"
@@ -70,9 +81,29 @@ async def monitor_ble_async(data_queue: mp.Queue, command_queue: mp.Queue):
             continue
 
         def queue_notification_handler(_: BleakGATTCharacteristic, data: bytearray):
-            reading = unpack_imu_data_packet(data)
-
-            data_queue.put(reading)
+            global sync_offset
+            import time
+            
+            # Capture system time immediately upon packet arrival
+            t_system_arrival = time.monotonic()
+            
+            try:
+                reading = unpack_imu_data_packet(data)
+                
+                # Establish master clock offset on first valid packet
+                if sync_offset is None:
+                    with sync_lock:
+                        if sync_offset is None:
+                            t_sensor_sec = reading.t / 1000.0
+                            sync_offset = t_sensor_sec - t_system_arrival
+                            print(f"\n[Sync] Master Clock Established:")
+                            print(f"[Sync] t_system_sync: {t_system_arrival:.6f}")
+                            print(f"[Sync] t_sensor_sync: {t_sensor_sec:.6f}")
+                            print(f"[Sync] Offset (t_sensor - t_system): {sync_offset:.6f}\n")
+                
+                data_queue.put(reading)
+            except Exception as e:
+                print(f"Error in notification handler: {e}")
 
         disconnected_event = asyncio.Event()
         print("Connecting to BLE device...")

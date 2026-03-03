@@ -21,7 +21,7 @@ sys.path.append(str(repo_root / "IMU"))
 
 # Try to import project modules
 try:
-    from app.monitor_ble import monitor_ble, StopCommand
+    from app.monitor_ble import monitor_ble, StopCommand, get_sync_offset
 except ImportError as e:
     print(f"Import error: {e}")
     print("Ensure you are running this from the Code/IMU directory or paths are correct.")
@@ -35,9 +35,15 @@ class RawDataRecorder:
             "metadata": {
                 "start_time": time.time(),
                 "filtered": False,
-                "note": "Raw IMU and Video recording for offline processing"
+                "note": "Raw IMU and Video recording for offline processing",
+                "sync_info": {}
             },
-            "imu_readings": []
+            "imu_readings": [],
+            "video_metadata": {
+                "fps": 30,
+                "t_cv_start_system": 0,
+                "sync_offset": 0
+            }
         }
         self.should_stop = False
         
@@ -56,9 +62,18 @@ class RawDataRecorder:
                         "t": reading.t,
                         "pressure": reading.pressure
                     }
-                # Store with absolute system timestamp for synchronization
+                # Store with absolute system timestamp for fallback/reference
                 reading_dict["local_timestamp"] = time.time()
                 self.data["imu_readings"].append(reading_dict)
+                
+                # Update metadata if offset was just established
+                if not self.data["metadata"]["sync_info"]:
+                    offset = get_sync_offset()
+                    if offset is not None:
+                        self.data["metadata"]["sync_info"] = {
+                            "offset": offset,
+                            "master_clock": "IMU_SENSOR"
+                        }
                 imu_count += 1
                 if imu_count % 100 == 0:
                     print(f"[Recorder] IMU: received {imu_count} samples")
@@ -103,7 +118,12 @@ def main():
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
     video_out = cv2.VideoWriter(args.video, fourcc, fps, (width, height))
 
+    # CRITICAL: Record the exact start time for both IMU and Video
+    t_cv_start_system = time.monotonic()
+    
     recorder = RawDataRecorder(args.imu, args.video)
+    recorder.data["video_metadata"]["fps"] = fps
+    recorder.data["video_metadata"]["t_cv_start_system"] = t_cv_start_system
     
     # Start BLE monitoring
     ble_queue = mp.Queue()
@@ -152,6 +172,11 @@ def main():
         video_out.release()
         cv2.destroyAllWindows()
         
+        # Finalize sync info in video metadata before saving
+        offset = get_sync_offset()
+        if offset is not None:
+            recorder.data["video_metadata"]["sync_offset"] = offset
+            
         recorder.save_imu()
         print(f"[Recorder] Video saved to {args.video}")
 
