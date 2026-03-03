@@ -30,6 +30,7 @@ def find_sync_point(imu_data, cv_data, method="first_detection"):
     Find synchronization point between IMU and CV data.
     
     Methods:
+    - "master_clock": Use IMU sensor clock synchronization (preferred)
     - "first_detection": Align at first CV detection (default)
     - "manual": Use manually specified offset
     - "cross_correlation": Use motion correlation (future enhancement)
@@ -52,20 +53,20 @@ def find_sync_point(imu_data, cv_data, method="first_detection"):
     else:
         cv_start = cv_readings[0]["local_timestamp"]
     
-    if method == "first_detection":
+    if method == "master_clock":
+        print(f"[Sync] Using master_clock (IMU Sensor) method")
+        # In master_clock mode, timestamps are already in the same domain (t_sensor)
+        # We align t=0 to the first CV detection for consistency with plotting
+        return cv_start, cv_start
+
+    elif method == "first_detection":
         # Align both streams to start at the first CV detection
         # CRITICAL: Use the SAME sync point for both IMU and CV to ensure exact alignment
         print(f"[Sync] Using first_detection method")
         print(f"  IMU start: {imu_start:.3f}")
         print(f"  CV start: {cv_start:.3f}")
         
-        # We assume the first CV detection happened at the same real-world time 
-        # as the IMU reading with the closest timestamp.
-        # However, for simplicity and since they are recorded on the same machine,
-        # we can just use the absolute difference if they share the same clock.
-        
         # If the timestamps are very far apart (e.g. > 1000s), they likely use different clocks
-        # or one was recorded much later.
         if abs(cv_start - imu_start) > 100:
             print(f"  [Warning] Large time difference ({abs(cv_start - imu_start):.1f}s).")
             print(f"  [Sync] Treating first readings as simultaneous.")
@@ -80,27 +81,34 @@ def find_sync_point(imu_data, cv_data, method="first_detection"):
         raise ValueError(f"Unknown sync method: {method}")
 
 
-def align_timestamps(readings, sync_offset, allow_negative=False):
+def align_timestamps(readings, sync_offset, allow_negative=False, use_sensor_t=False):
     """
     Align timestamps to start from sync point.
     CRITICAL: Both 'timestamp' and 'local_timestamp' must be aligned for EKF to work correctly.
     
     Args:
-        readings: List of readings with "local_timestamp" field
+        readings: List of readings with timestamp fields
         sync_offset: Timestamp to use as t=0
         allow_negative: If True, include readings before sync point (with negative timestamps)
+        use_sensor_t: If True, use the sensor 't' field (converted to seconds) instead of local_timestamp
     
     Returns:
         List of readings with aligned timestamps
     """
     aligned = []
     for reading in readings:
+        # Determine the source timestamp
+        if use_sensor_t and "t" in reading:
+            t_src = reading["t"] / 1000.0  # Convert ms to seconds
+        else:
+            t_src = reading["local_timestamp"]
+            
         # Include readings at or after sync point, or before if allow_negative=True
-        if allow_negative or reading["local_timestamp"] >= sync_offset:
+        if allow_negative or t_src >= sync_offset:
             aligned_reading = reading.copy()
             # CRITICAL: Update both timestamp fields to maintain consistency
-            aligned_reading["timestamp"] = reading["local_timestamp"] - sync_offset
-            aligned_reading["local_timestamp"] = reading["local_timestamp"] - sync_offset
+            aligned_reading["timestamp"] = t_src - sync_offset
+            aligned_reading["local_timestamp"] = t_src - sync_offset
             aligned.append(aligned_reading)
     
     return aligned
@@ -128,6 +136,12 @@ def merge_data(imu_file, cv_file, output_file, sync_method="first_detection", ma
     print(f"[Merge] Loading CV data from: {cv_file}")
     cv_data = load_json(cv_file)
     
+    # Detect if master clock was used
+    is_master_clock = (cv_data.get("metadata", {}).get("master_clock") == "IMU_SENSOR")
+    if is_master_clock:
+        print("[Sync] Master Clock (IMU_SENSOR) detected in CV data")
+        sync_method = "master_clock"
+
     # Find synchronization point
     if sync_method == "manual":
         print(f"[Sync] Using manual offset: {manual_offset:.3f} seconds")
@@ -145,11 +159,21 @@ def merge_data(imu_file, cv_file, output_file, sync_method="first_detection", ma
     
     # Align timestamps
     # CRITICAL: Allow IMU readings before CV start (negative timestamps) for proper EKF initialization
-    print(f"[Merge] Aligning IMU timestamps (offset: {imu_offset:.3f}, allow_negative=True)")
-    aligned_imu = align_timestamps(imu_data.get("imu_readings", []), imu_offset, allow_negative=True)
+    print(f"[Merge] Aligning IMU timestamps (offset: {imu_offset:.3f}, allow_negative=True, use_sensor_t={is_master_clock})")
+    aligned_imu = align_timestamps(
+        imu_data.get("imu_readings", []), 
+        imu_offset, 
+        allow_negative=True, 
+        use_sensor_t=is_master_clock
+    )
     
     print(f"[Merge] Aligning CV timestamps (offset: {cv_offset:.3f})")
-    aligned_cv = align_timestamps(cv_data.get("cv_readings", []), cv_offset, allow_negative=False)
+    aligned_cv = align_timestamps(
+        cv_data.get("cv_readings", []), 
+        cv_offset, 
+        allow_negative=False,
+        use_sensor_t=False # CV is already in sensor domain if master_clock is used
+    )
     
     # Create merged data structure (matching my_data.json format)
     merged_data = {
@@ -202,7 +226,7 @@ def main():
     parser.add_argument("cv_file", help="Path to CV data JSON file")
     parser.add_argument("--output", default="outputs/merged_data.json", help="Output merged JSON file (use my_data.json for compare_workflows.py)")
     parser.add_argument("--sync", default="first_detection", 
-                       choices=["first_detection", "manual"],
+                       choices=["first_detection", "manual", "master_clock"],
                        help="Synchronization method")
     parser.add_argument("--offset", type=float, default=0.0,
                        help="Manual time offset in seconds (CV - IMU), only used with --sync manual")

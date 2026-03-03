@@ -59,8 +59,14 @@ class OfflineCVProcessor:
         self.filter_qy = None
         self.filter_qz = None
     
-    def process_video(self):
-        """Process the video file and extract CV data"""
+    def process_video(self, video_start_timestamp=None, t_cv_start_system=None, sync_offset=None):
+        """
+        Process the video file and extract CV data.
+        Args:
+            video_start_timestamp: The absolute system timestamp when the video recording started.
+            t_cv_start_system: The monotonic system timestamp when the video recording started.
+            sync_offset: The offset (t_sensor - t_system) established during recording.
+        """
         print(f"[CV Processor] Opening video: {self.video_path}")
         cap = cv2.VideoCapture(str(self.video_path))
         
@@ -84,8 +90,26 @@ class OfflineCVProcessor:
         
         frame_count = 0
         detection_count = 0
-        start_time = time.time()
-        video_start_timestamp = start_time
+        start_time_proc = time.time()
+        
+        # If no start timestamp is provided, we use 0 (the merge script will handle alignment)
+        if video_start_timestamp is None:
+            video_start_timestamp = 0
+            print("[CV Processor] No video start timestamp provided. Using 0.")
+        else:
+            print(f"[CV Processor] Using provided video start timestamp: {video_start_timestamp:.3f}")
+        
+        # Use sync_offset if provided to establish master clock timestamps
+        if t_cv_start_system is not None and sync_offset is not None:
+            print(f"[CV Processor] Using Master Clock sync:")
+            print(f"  t_cv_start_system: {t_cv_start_system:.6f}")
+            print(f"  sync_offset: {sync_offset:.6f}")
+            self.data["metadata"]["master_clock"] = "IMU_SENSOR"
+            self.data["metadata"]["sync_offset"] = sync_offset
+            self.data["metadata"]["t_cv_start_system"] = t_cv_start_system
+            
+        # Update metadata
+        self.data["metadata"]["start_time"] = video_start_timestamp
         
         print("[CV Processor] Processing frames...")
         
@@ -98,7 +122,12 @@ class OfflineCVProcessor:
                 frame_count += 1
                 
                 # Calculate timestamp based on frame number and FPS
-                frame_timestamp = video_start_timestamp + (frame_count / fps)
+                if t_cv_start_system is not None and sync_offset is not None:
+                    # Master Clock domain: t_sensor = (t_cv_start_system + frame_index / fps) + offset
+                    frame_timestamp = (t_cv_start_system + (frame_count / fps)) + sync_offset
+                else:
+                    # Fallback to absolute system time
+                    frame_timestamp = video_start_timestamp + (frame_count / fps)
                 
                 # Run object tracking
                 obj = tracker.object_tracking(rgb, ddc_params, ddc_text_data, post)
@@ -200,7 +229,7 @@ class OfflineCVProcessor:
         finally:
             cap.release()
         
-        processing_time = time.time() - start_time
+        processing_time = time.time() - start_time_proc
         
         print(f"\n[CV Processor] Processing complete:")
         print(f"  Total frames processed: {frame_count}")
@@ -238,7 +267,37 @@ def main():
         apply_filter=not args.no_filter
     )
     
-    processor.process_video()
+    # If processing the default outputs/video.mp4, try to find its start time from imu_data.json
+    video_start_time = None
+    t_cv_start_system = None
+    sync_offset = None
+    
+    if Path(args.video).name == "video.mp4":
+        imu_json = Path(args.video).parent / "imu_data.json"
+        if imu_json.exists():
+            try:
+                with open(imu_json, 'r') as f:
+                    imu_data = json.load(f)
+                    video_start_time = imu_data.get("metadata", {}).get("start_time")
+                    
+                    # Try to get Master Clock sync info
+                    video_meta = imu_data.get("video_metadata", {})
+                    t_cv_start_system = video_meta.get("t_cv_start_system")
+                    sync_offset = video_meta.get("sync_offset")
+                    
+                    if video_start_time:
+                        print(f"[CV Processor] Found video start time: {video_start_time}")
+                    if t_cv_start_system and sync_offset:
+                        print(f"[CV Processor] Found Master Clock sync info in imu_data.json")
+            except Exception as e:
+                print(f"[CV Processor] Error reading imu_data.json: {e}")
+                pass
+
+    processor.process_video(
+        video_start_timestamp=video_start_time,
+        t_cv_start_system=t_cv_start_system,
+        sync_offset=sync_offset
+    )
     processor.save()
 
 
