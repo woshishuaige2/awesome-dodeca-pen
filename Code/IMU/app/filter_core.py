@@ -18,7 +18,10 @@ i_accbias = np.array([16, 17, 18])
 i_gyrobias = np.array([19, 20, 21])
 
 STATE_SIZE = 22
-GRAVITY_VECTOR = np.array([0, 0, -9.81])
+# GRAVITY_VECTOR points UP in the world frame because the accelerometer
+# measures the normal force pushing the stylus UP against gravity.
+# This matches the CV world frame where Z+ is UP.
+GRAVITY_VECTOR = np.array([0, 0, 9.81])
 
 
 class FilterState(NamedTuple):
