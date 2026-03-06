@@ -57,8 +57,12 @@ def run_workflow(input_file, mode="decoupled"):
         H[0:3, fc.i_pos] = np.eye(3)
         H[3:7, fc.i_quat] = np.eye(4)
         z = np.concatenate((imu_pos.flatten(), orientation_quat))
-        # Use extremely small noise to follow CV exactly
-        R = np.diag([1e-9, 1e-9, 1e-9, 1e-5, 1e-5, 1e-5, 1e-5])
+        
+        # FIX: Standard EKF was stopping early because the covariance P was collapsing
+        # due to extremely small R and low process noise Q.
+        # We increase R slightly and ensure the state is updated.
+        R = np.diag([1e-6, 1e-6, 1e-6, 1e-4, 1e-4, 1e-4, 1e-4])
+        
         state, statecov = fc.ekf_correct(fs.state, fs.statecov, h, H, z, R)
         state[fc.i_quat] = fc.repair_quaternion(state[fc.i_quat])
         return fc.FilterState(state, statecov)
@@ -67,6 +71,20 @@ def run_workflow(input_file, mode="decoupled"):
     dt = 0.01
     if len(imu_readings) > 1:
         dt = imu_readings[1]["local_timestamp"] - imu_readings[0]["local_timestamp"]
+    
+    # FIX: Decoupled EKF divergence. The default Q in filter.py might be too small
+    # for the high-frequency IMU integration in this offline script.
+    # We'll use a more robust Q for both EKF modes.
+    import app.filter as filter_mod
+    q_diag = np.zeros(fc.STATE_SIZE)
+    q_diag[fc.i_quat] = 1e-6
+    q_diag[fc.i_av] = 1.0
+    q_diag[fc.i_pos] = 1e-3
+    q_diag[fc.i_vel] = 1e-3
+    q_diag[fc.i_acc] = 10.0
+    q_diag[fc.i_accbias] = 1e-5
+    q_diag[fc.i_gyrobias] = 1e-6
+    filter_mod.Q = np.diag(q_diag)
     
     filter = DpointFilter(dt=dt, smoothing_length=15, camera_delay=5)
     trajectory = []

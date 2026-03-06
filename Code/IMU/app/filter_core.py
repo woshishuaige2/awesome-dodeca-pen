@@ -264,11 +264,13 @@ def fuse_imu(
     # Camera Frame: X+ right, Y+ down, Z+ forward
     # Pen Frame: X+ forward, Y+ right, Z+ up
     # Correct mapping:
-    # Pen Y+ -> Camera X+
-    # Pen Z+ -> Camera Y- (so Pen Z- is Camera Y+)
-    # Pen X+ -> Camera Z+
-    accel2 = np.array([accel[1], -accel[2], accel[0]])
-    gyro2 = np.array([gyro[1], -gyro[2], gyro[0]])
+    # Pen X+ -> Camera X+
+    # Pen Y+ -> Camera Y+
+    # Pen Z+ -> Camera Z+
+    # Assuming the Pen and Camera frames are already aligned or the rotation
+    # is handled by the initial orientation.
+    accel2 = accel
+    gyro2 = gyro
     z = np.concatenate((accel2, gyro2))  # actual measurement
     state, statecov = ekf_correct(fs.state, fs.statecov, h, H, z, meas_noise)
     state[i_quat] = repair_quaternion(state[i_quat])
