@@ -50,10 +50,21 @@ def calc_gyro(g):
     return g * 4.375 * (gyro_range / 125) / 1000
 
 
-def unpack_imu_data_packet(data: bytearray):
+def unpack_imu_data_packet(data: bytearray, t_system_fallback: float = 0.0):
     """Unpacks an IMUDataPacket struct from the given data buffer."""
-    # Matches Arduino struct: int16_t accel[3], gyro[3], uint16_t pressure, uint32_t timestamp
-    ax, ay, az, gx, gy, gz, pressure, t_sensor = struct.unpack("<3h3hHI", data)
+    # Legacy format: int16_t accel[3], gyro[3], uint16_t pressure (14 bytes)
+    # Master clock format: int16_t accel[3], gyro[3], uint16_t pressure, uint32_t timestamp (18 bytes)
+    
+    if len(data) == 18:
+        # Master Clock format
+        ax, ay, az, gx, gy, gz, pressure, t_sensor = struct.unpack("<3h3hHI", data)
+    elif len(data) == 14:
+        # Legacy format - use fallback system time converted to ms
+        ax, ay, az, gx, gy, gz, pressure = struct.unpack("<3h3hH", data)
+        t_sensor = int(t_system_fallback * 1000)
+    else:
+        raise ValueError(f"Unexpected packet size: {len(data)} bytes")
+
     accel = calc_accel(np.array([ax, ay, az], dtype=np.float64) * 9.8)
     gyro = calc_gyro(np.array([gx, gy, gz], dtype=np.float64) * np.pi / 180.0)
     return StylusReading(accel, gyro, t_sensor, pressure / 2**16)
@@ -88,10 +99,12 @@ async def monitor_ble_async(data_queue: mp.Queue, command_queue: mp.Queue):
             t_system_arrival = time.monotonic()
             
             try:
-                reading = unpack_imu_data_packet(data)
+                # Pass arrival time for legacy fallback
+                reading = unpack_imu_data_packet(data, t_system_fallback=t_system_arrival)
                 
                 # Establish master clock offset on first valid packet
-                if sync_offset is None:
+                # Only do this for 18-byte packets (true master clock)
+                if sync_offset is None and len(data) == 18:
                     with sync_lock:
                         if sync_offset is None:
                             t_sensor_sec = reading.t / 1000.0
