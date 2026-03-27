@@ -13,11 +13,84 @@ repo_root = Path(__file__).resolve().parents[1]
 sys.path.append(str(repo_root / "IMU"))
 
 from app.filter import DpointFilter, initial_state
+from app.imu_alignment import (
+    DEFAULT_ALIGNMENT_PATH,
+    estimate_alignment_from_streams,
+    load_alignment_calibration,
+)
 from app.monitor_ble import StylusReading
 from app.dodeca_bridge import CENTER_TO_TIP_BODY
 import app.filter_core as fc
 
-def run_workflow(input_file, mode="decoupled"):
+DEFAULT_DT = 1.0 / 60.0
+
+
+def _estimate_nominal_dt(imu_readings):
+    """
+    Estimate a stable IMU timestep from the positive timestamp deltas.
+
+    Offline recordings can contain duplicate timestamps when multiple BLE packets
+    are received inside the same clock tick. Using the first delta directly can
+    therefore produce dt=0 and effectively break the EKF dynamics.
+    """
+    if len(imu_readings) < 2:
+        return DEFAULT_DT
+
+    timestamps = np.array([r["local_timestamp"] for r in imu_readings], dtype=float)
+    deltas = np.diff(timestamps)
+    positive_deltas = deltas[deltas > 1e-6]
+    if positive_deltas.size == 0:
+        return DEFAULT_DT
+
+    return float(np.median(positive_deltas))
+
+
+def _update_filter_dt(filter_obj, delta_t, nominal_dt):
+    """
+    Keep the filter timestep sane for irregular offline data.
+    """
+    if delta_t is None:
+        filter_obj.dt = nominal_dt
+        return
+
+    if delta_t <= 1e-6:
+        return
+
+    # Clamp large gaps so the EKF does not take a single oversized integration
+    # step after periods without IMU updates.
+    filter_obj.dt = min(float(delta_t), 5.0 * nominal_dt)
+
+
+def _resolve_imu_alignment(imu_readings, cv_readings, calibration_path=None):
+    explicit_path = Path(calibration_path) if calibration_path else None
+    candidate_paths = []
+    if explicit_path is not None:
+        candidate_paths.append(explicit_path)
+    candidate_paths.append(DEFAULT_ALIGNMENT_PATH)
+
+    seen_paths = set()
+    for path in candidate_paths:
+        if str(path) in seen_paths:
+            continue
+        seen_paths.add(str(path))
+        calibration = load_alignment_calibration(path)
+        if calibration is not None:
+            print(
+                f"[IMU Align] Loaded calibration from {calibration['path']} "
+                f"(method={calibration['method']}, observable_axes={calibration['observable_axes']})"
+            )
+            return calibration["rotation_matrix"], calibration["gravity_camera"]
+
+    calibration = estimate_alignment_from_streams(imu_readings, cv_readings)
+    print(
+        f"[IMU Align] No saved calibration found. "
+        f"Using fallback {calibration['method']} estimate "
+        f"(mean_residual={calibration['mean_residual']:.4f}, max_residual={calibration['max_residual']:.4f})"
+    )
+    return calibration["rotation_matrix"], calibration["gravity_camera"]
+
+
+def run_workflow(input_file, mode="decoupled", calibration_path=None):
     """
     Modes: 
     - 'cv_only': Only use CV updates, no IMU.
@@ -48,7 +121,6 @@ def run_workflow(input_file, mode="decoupled"):
 
     # Configuration for different modes
     original_camera_measurement = fc.camera_measurement
-    original_fuse_camera = fc.fuse_camera
 
     # Standard mode logic helper
     def standard_fuse_camera(fs, imu_pos, orientation_quat):
@@ -67,9 +139,7 @@ def run_workflow(input_file, mode="decoupled"):
         return fc.FilterState(state, statecov)
 
     # Initialize Filter
-    dt = 0.01
-    if len(imu_readings) > 1:
-        dt = imu_readings[1]["local_timestamp"] - imu_readings[0]["local_timestamp"]
+    dt = _estimate_nominal_dt(imu_readings)
     
     # FIX: Tuning noise parameters for both EKF modes.
     # We need high process noise for position and velocity to follow CV accurately,
@@ -85,14 +155,19 @@ def run_workflow(input_file, mode="decoupled"):
     q_diag[fc.i_gyrobias] = 1e-7
     filter_mod.Q = np.diag(q_diag)
     
-    filter = DpointFilter(dt=dt, smoothing_length=15, camera_delay=5)
+    imu_alignment, gravity_camera = _resolve_imu_alignment(imu_readings, cv_readings, calibration_path)
+    filter = DpointFilter(dt=dt, smoothing_length=15, camera_delay=5, gravity_vector=gravity_camera)
     trajectory = []
+    previous_imu_ts = None
 
     first_cv = True
     for i, (type, ts, reading) in enumerate(all_events):
         if type == "IMU":
+            imu_dt = None if previous_imu_ts is None else (ts - previous_imu_ts)
+            _update_filter_dt(filter, imu_dt, dt)
             sr = StylusReading.from_json(reading)
-            filter.update_imu(sr.accel, sr.gyro)
+            filter.update_imu(imu_alignment @ sr.accel, imu_alignment @ sr.gyro)
+            previous_imu_ts = ts
             
             # If we haven't seen CV yet, we can't initialize position
             if first_cv:
@@ -219,16 +294,28 @@ def visualize(results_dict, output_path):
     print(f"Comparison plot saved to {output_path}")
 
 if __name__ == "__main__":
-    data_file = "outputs/my_data.json"  # Input data file
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Compare offline CV/EKF workflows")
+    parser.add_argument("data_file", nargs="?", default="outputs/my_data.json")
+    parser.add_argument(
+        "--imu-calibration",
+        default=None,
+        help=f"Path to IMU alignment calibration JSON. Defaults to {DEFAULT_ALIGNMENT_PATH}",
+    )
+    args = parser.parse_args()
+
+    data_file = args.data_file
+    print(f"Using data file: {data_file}")
     
     print("Running CV Only workflow...")
-    df_cv = run_workflow(data_file, mode="cv_only")
+    df_cv = run_workflow(data_file, mode="cv_only", calibration_path=args.imu_calibration)
     
     print("Running Standard EKF workflow...")
-    df_std = run_workflow(data_file, mode="standard")
+    df_std = run_workflow(data_file, mode="standard", calibration_path=args.imu_calibration)
     
     print("Running Decoupled EKF workflow...")
-    df_dec = run_workflow(data_file, mode="decoupled")
+    df_dec = run_workflow(data_file, mode="decoupled", calibration_path=args.imu_calibration)
     
     results = {
         "CV Only (Raw)": df_cv,

@@ -22,6 +22,7 @@ from app.filter_core import (
     i_pos,
     i_quat,
     i_vel,
+    DEFAULT_GRAVITY_VECTOR,
 )
 
 Mat = npt.NDArray[np.float64]
@@ -117,16 +118,19 @@ def blend_new_data(old: np.ndarray, new: np.ndarray, alpha: float):
 class DpointFilter:
     history: Deque[HistoryItem]
 
-    def __init__(self, dt, smoothing_length: int, camera_delay: int):
+    def __init__(self, dt, smoothing_length: int, camera_delay: int, gravity_vector=None):
         self.history = deque()
         self.fs = initial_state()
         self.dt = dt
         self.smoothing_length = smoothing_length
         self.camera_delay = camera_delay
+        if gravity_vector is None:
+            gravity_vector = DEFAULT_GRAVITY_VECTOR
+        self.gravity_vector = np.asarray(gravity_vector, dtype=np.float64)
 
     def update_imu(self, accel: np.ndarray, gyro: np.ndarray):
         predicted = ekf_predict(self.fs, self.dt, Q)
-        self.fs = fuse_imu(predicted, accel, gyro, imu_noise)
+        self.fs = fuse_imu(predicted, accel, gyro, imu_noise, self.gravity_vector)
         self.history.append(
             HistoryItem(
                 self.fs.state,

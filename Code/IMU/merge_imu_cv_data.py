@@ -81,6 +81,34 @@ def find_sync_point(imu_data, cv_data, method="first_detection"):
         raise ValueError(f"Unknown sync method: {method}")
 
 
+def should_use_master_clock(imu_data, cv_data, tolerance_seconds=10.0):
+    """
+    Validate that CV and IMU timestamps are genuinely in the same sensor clock domain.
+    """
+    if cv_data.get("metadata", {}).get("master_clock") != "IMU_SENSOR":
+        return False
+
+    imu_readings = imu_data.get("imu_readings", [])
+    cv_readings = cv_data.get("cv_readings", [])
+    if not imu_readings or not cv_readings:
+        return False
+
+    if "t" not in imu_readings[0]:
+        return False
+
+    imu_sensor_start = imu_readings[0]["t"] / 1000.0
+    cv_start = cv_readings[0]["local_timestamp"]
+    delta = abs(imu_sensor_start - cv_start)
+    if delta > tolerance_seconds:
+        print(
+            f"[Sync] Master clock metadata present, but timestamps disagree by "
+            f"{delta:.3f}s. Falling back to standard synchronization."
+        )
+        return False
+
+    return True
+
+
 def align_timestamps(readings, sync_offset, allow_negative=False, use_sensor_t=False):
     """
     Align timestamps to start from sync point.
@@ -137,7 +165,7 @@ def merge_data(imu_file, cv_file, output_file, sync_method="first_detection", ma
     cv_data = load_json(cv_file)
     
     # Detect if master clock was used
-    is_master_clock = (cv_data.get("metadata", {}).get("master_clock") == "IMU_SENSOR")
+    is_master_clock = should_use_master_clock(imu_data, cv_data)
     if is_master_clock:
         print("[Sync] Master Clock (IMU_SENSOR) detected in CV data")
         sync_method = "master_clock"
@@ -178,10 +206,10 @@ def merge_data(imu_file, cv_file, output_file, sync_method="first_detection", ma
     # Create merged data structure (matching my_data.json format)
     merged_data = {
         "metadata": {
-            "start_time": min(imu_offset, cv_offset),
+            "start_time": 0.0,
             "end_time": max(
-                aligned_imu[-1]["local_timestamp"] if aligned_imu else imu_offset,
-                aligned_cv[-1]["local_timestamp"] if aligned_cv else cv_offset
+                aligned_imu[-1]["local_timestamp"] if aligned_imu else 0.0,
+                aligned_cv[-1]["local_timestamp"] if aligned_cv else 0.0
             ),
             "tip_offset_body": cv_data["metadata"].get("tip_offset_body", [0, 0, 0]),
             "imu_to_tip_body": cv_data["metadata"].get("imu_to_tip_body", [0, 0, 0]),

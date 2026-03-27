@@ -18,10 +18,11 @@ i_accbias = np.array([16, 17, 18])
 i_gyrobias = np.array([19, 20, 21])
 
 STATE_SIZE = 22
+DEFAULT_GRAVITY_VECTOR = np.array([0, 0, 9.81], dtype=np.float64)
 # GRAVITY_VECTOR points UP in the world frame because the accelerometer
 # measures the normal force pushing the stylus UP against gravity.
 # This matches the CV world frame where Z+ is UP.
-GRAVITY_VECTOR = np.array([0, 0, 9.81])
+GRAVITY_VECTOR = DEFAULT_GRAVITY_VECTOR.copy()
 
 
 class FilterState(NamedTuple):
@@ -114,7 +115,7 @@ def state_transition_jacobian(state: Mat):
 
 
 @njit(cache=True)
-def imu_measurement(state: Mat):
+def imu_measurement(state: Mat, gravity_vector: Mat = DEFAULT_GRAVITY_VECTOR):
     av = state[i_av]
     acc = state[i_acc]
     quat = state[i_quat]
@@ -126,7 +127,7 @@ def imu_measurement(state: Mat):
     mj_gyro[:, i_av] = np.eye(3)
     mj_gyro[:, i_gyrobias] = np.eye(3)
 
-    grav = GRAVITY_VECTOR
+    grav = gravity_vector
 
     m_accel = np.array(
         [
@@ -256,9 +257,13 @@ def ekf_correct(x: Mat, P: Mat, h: Mat, H: Mat, z: Mat, R: Mat):
 
 @njit(cache=True)
 def fuse_imu(
-    fs: FilterState, accel: np.ndarray, gyro: np.ndarray, meas_noise: np.ndarray
+    fs: FilterState,
+    accel: np.ndarray,
+    gyro: np.ndarray,
+    meas_noise: np.ndarray,
+    gravity_vector: Mat = DEFAULT_GRAVITY_VECTOR,
 ):
-    h, H = imu_measurement(fs.state)
+    h, H = imu_measurement(fs.state, gravity_vector)
     # Correct mapping for Dodeca-pen to Camera Frame:
     # Camera: X right, Y down, Z forward
     # Pen: X forward, Y right, Z up

@@ -73,7 +73,28 @@ python merge_imu_cv_data.py outputs/recording/imu_data.json outputs/recording/cv
 - `--sync first_detection` (default) - Align at first CV marker detection
 - `--sync manual --offset X.X` - Manual offset in seconds (CV - IMU)
 
-### Step 4: Analyze Results
+### Step 4: Calibrate IMU Axis Alignment
+
+Use one or more merged stationary recordings captured in clearly different pen orientations:
+
+```bash
+cd Code/IMU
+python calibrate_imu_alignment.py outputs/calib_pose_1.json outputs/calib_pose_2.json outputs/calib_pose_3.json
+```
+
+**What it does:**
+- Estimates a fixed IMU-to-body rotation from stationary gravity observations
+- Saves the calibration to `calibration/imu_to_body.json`
+- Prints a warning if you only provide one pose, because that only constrains gravity alignment and not the full 3D yaw relationship
+
+**Recommended calibration data:**
+- Record `6 to 10` stationary batches
+- Hold each pose for `5 to 10 s`
+- Make the orientations clearly different
+- Keep the camera fixed during the calibration session and the validation run, because the calibration also estimates gravity in the camera frame
+- Treat large residuals as a bad calibration; low residuals mean the stationary poses agree under one rigid IMU-to-body transform
+
+### Step 5: Analyze Results
 
 Use the existing `compare_workflows.py`:
 
@@ -88,6 +109,7 @@ python compare_workflows.py outputs/my_data.json
   - Standard EKF (Coupled)
   - Decoupled EKF (Proposed)
 - Saves visualization to `outputs/comparison.png`
+- Automatically loads `calibration/imu_to_body.json` if it exists
 
 ## Complete Example
 
@@ -104,7 +126,10 @@ python process_video_to_cv_data.py outputs/recording/video.mp4 --output outputs/
 # Step 3: Merge data
 python merge_imu_cv_data.py outputs/recording/imu_data.json outputs/recording/cv_data.json --output outputs/my_data.json
 
-# Step 4: Analyze
+# Step 4: Calibrate IMU alignment
+python calibrate_imu_alignment.py outputs/calib_pose_1.json outputs/calib_pose_2.json outputs/calib_pose_3.json
+
+# Step 5: Analyze
 python compare_workflows.py outputs/my_data.json
 ```
 
